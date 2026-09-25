@@ -22,7 +22,11 @@ The bot plays its turns and accepts every offer. `node scripts/spectate.mjs <roo
 ## How it fits together
 
 - `shared/board.ts` builds each map at 40, 48 or 56 tiles (22, 28 or 36 cities). The 40-tile board uses the classic price table. Bigger boards price their cities by interpolating that table, so rent always rises with price. On Auto, the size is picked by player count: 2–5 players get 40 tiles, 6–8 get 48, 9–10 get 56.
-- There are 4 maps: Classic (the default, with no specials), World Tour, Pakistan and Euro Trip. The last three each have 10 map specials (`SPECIALS` in `shared/engine.ts`), and the host can switch any of them off. The specials hook into rent (`specialRentFactor`), landing, laps, round starts and timed votes and bets.
+- There are 4 maps: Classic (the default, Richup-style countries, no specials), World Tour, Pakistan and Euro Trip. Each map has its own layout in `shared/board.ts` (a pattern string per side), so the themed maps have different tiles, not renamed ones:
+  - World Tour: 6 airports on a flight network (routes drawn across the board), shipping ports, World News headlines, Customs, Duty-Free and Deported corners.
+  - Pakistan: 2 airports, motorway toll plazas (drive-past tolls, and a motorway ride between them), stadiums, Committee, Bazaar (with haggling), Shaadi Hall, plot files at the Property Dealer, the Thana (sifarish), Northern Areas trip and the Naka checkpoint.
+  - Euro Trip: 6 stations on 3 rail lines, EU borders, floating currencies, museums and a culture prize, a festival, hostels and an EU Parliament whose laws everyone votes on.
+- Map rules that can be switched off live in `SPECIALS` in `shared/engine.ts`. They hook into rent (`specialRentFactor`), landing, laps, round starts and timed votes and bets. Map tile effects are in `mapTile` in the same file; `shared/maps.test.ts` covers them.
 - `shared/engine.ts` holds every rule, including the 30 general settings (see `DEFAULT_SETTINGS`, `SETTING_CHOICES` and `PRESETS`). It is pure and deterministic (seeded dice), so the server, the tests and the replay viewer all run the same code.
 - `server/index.ts` is one Node process with Express and Socket.io. Rooms live in memory. Every change is saved to `.data/rooms.json`, so a restart keeps games going. The server also relays chat, reactions and the voice-call handshake, and records each game's events for replays.
 - `src/` is the React client built with Vite.

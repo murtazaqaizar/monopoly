@@ -65,7 +65,7 @@ export function Room({ code }: { code: string }) {
             busy={busy}
             onSubmit={async (p) => {
               setBusy(true);
-              const res = await joinRoom({ code, name: p.name, color: p.color, spectate: status.started });
+              const res = await joinRoom({ code, name: p.name, color: p.color, piece: p.piece, spectate: status.started });
               setBusy(false);
               if (!res.ok) return setStatus({ kind: 'error', message: res.error.startsWith('need-name') ? 'Pick a nickname' : res.error });
               if (res.spectator) {

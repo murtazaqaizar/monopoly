@@ -1,9 +1,12 @@
-import type { BoardMap, Group, Tile } from './types';
+import type { BoardMap, Group, Route, Tile, TileKind } from './types';
 
 /*
- * Boards come in three sizes. The 40-tile board uses the hand-tuned classic price table;
- * bigger boards place extra cities along each side and price them by interpolating that
- * same table, so rent always rises smoothly with price.
+ * Boards come in three sizes. The classic 40-tile board uses the hand-tuned classic price table;
+ * other layouts place their cities along each side and price them by interpolating that same
+ * table, so rent always rises smoothly with price.
+ *
+ * Each map has its own layout: which special tiles it has, how many, and where. Classic keeps the
+ * traditional mix; World Tour, Pakistan and Euro Trip swap in their own tile types.
  */
 
 export type BoardSize = 40 | 48 | 56;
@@ -26,20 +29,39 @@ const GROUP_ORDER: { id: string; color: string; extra?: 'large' | 'mega' }[] = [
 ];
 
 /*
- * Tile patterns per side, corners excluded. P city, C Treasure, X Surprise, T tax, A airport, U utility.
- * Each size keeps 4 airports, 2 utilities and 2 taxes; bigger sides add cities and cards.
+ * Tile patterns per side, corners excluded.
+ *   P city     A airport / station   U utility   T tax   C Treasure   X Surprise
+ *   O port     N World News          K Customs                                  (World Tour)
+ *   M toll     S stadium   B committee   Z bazaar   W shaadi hall   F property dealer   (Pakistan)
+ *   L parliament   Y museum   Q festival   H hostel                                  (Euro Trip)
  */
-const SIDES: Record<BoardSize, [string, string, string, string]> = {
+type Layout = Record<BoardSize, [string, string, string, string]>;
+
+const CLASSIC_LAYOUT: Layout = {
   40: ['PCPTAPXPP', 'PUPPAPCPP', 'PXPPAPPUP', 'PPCPAXPTP'],
   48: ['PCPPTAPXPPP', 'PUPPCAPPCPP', 'PXPPAPPXPUP', 'PPCPPAXPPTP'],
   56: ['PCPPPTAPXPPPP', 'PUPPPCAPPCPPP', 'PXPPPAPPXPPUP', 'PPCPPPAXPPPTP'],
 };
 
-/** Cities per colour set, in board order. */
-const SET_SIZES: Record<BoardSize, number[]> = {
-  40: [2, 3, 3, 3, 3, 3, 3, 2],
-  48: [2, 3, 3, 3, 3, 3, 3, 3, 3, 2],
-  56: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+/** Six airports on a route network, two ports, news desks and customs; no utilities or cards. */
+const WORLD_LAYOUT: Layout = {
+  40: ['PNPTAPKPP', 'PAPPOPPNP', 'PKPPAPPAP', 'PPOPAPNAP'],
+  48: ['PNPTPAPKPPP', 'PAPPPOPNPKP', 'PNPPPAPPAPK', 'PPOPPAPNPAP'],
+  56: ['PNPPTPAPPKPPP', 'PAPPPPOPPNPKP', 'PNPPPPAPPPAPK', 'PPOPPPAPPNPAP'],
+};
+
+/** Only two airports; toll plazas on a motorway, stadiums, bazaars, the committee and more cities. */
+const PAKISTAN_LAYOUT: Layout = {
+  40: ['PZPPAPPWP', 'PSPPMPPFP', 'PZPPBPPTP', 'PMPPAPPSP'],
+  48: ['PZPTPAPPWPP', 'PSPPPMPPFPP', 'PZPPBPPTPZP', 'PMPPPAPPSPP'],
+  56: ['PZPPTPAPPWPPP', 'PSPPPPMPPFPZP', 'PZPPPBPPTPPWP', 'PMPPPPAPPSPBP'],
+};
+
+/** Six stations on three rail lines (two cross the middle), museums, hostels, a festival and Parliament. */
+const EUROPE_LAYOUT: Layout = {
+  40: ['PHPTAPYPP', 'PAPPAPPLP', 'PHPPAPQPP', 'PAPPAPTYP'],
+  48: ['PHPTPAPYPPP', 'PAPPPAPLPYP', 'PHPPPAPQPHP', 'PAPYPAPTPPP'],
+  56: ['PHPPTPAPPYPPP', 'PAPPPPAPLPPYP', 'PHPPPPAPQPPHP', 'PAPPYPAPPTPPP'],
 };
 
 /** Classic price -> rent table [base, 1-4 houses, hotel]; the anchor for all boards. */
@@ -95,12 +117,23 @@ function houseCostFor(price: number) {
   return 200;
 }
 
+/** Cities per set: three each, trimming the cheapest and priciest sets to two when cities run short. */
+function setSizes(groups: number, cities: number): number[] {
+  const sizes = Array.from({ length: groups }, () => 3);
+  let extra = groups * 3 - cities;
+  for (let k = 0; extra > 0; k++, extra--) sizes[k % 2 === 0 ? k / 2 : groups - 1 - (k - 1) / 2]--;
+  return sizes;
+}
+
 export interface MapGroupDef {
   name: string;
   /** two lowercase letters = flag code, anything else = emoji badge */
   mark: string;
   /** three names, cheapest first; two-city sets use the last two */
   cities: [string, string, string];
+  region?: string;
+  currency?: string;
+  nonEU?: boolean;
 }
 
 export interface MapDef {
@@ -109,61 +142,97 @@ export interface MapDef {
   blurb: string;
   /** keyed by group id from GROUP_ORDER */
   groups: Record<string, MapGroupDef>;
-  airports: [string, string, string, string];
-  utilities: [string, string];
-  taxes: [string, string];
+  layout: Layout;
+  corners: [string, string, string, string];
+  /** names for repeated tile types, in board order */
+  airports: string[];
+  utilities?: string[];
+  taxes: string[];
+  ports?: string[];
+  tolls?: string[];
+  stadiums?: string[];
+  museums?: string[];
+  /** route links between tiles of one kind, as index pairs into that kind's board-order list */
+  routes?: { kind: Route['kind']; of: 'A' | 'M'; pairs: [number, number, string, string][] };
 }
 
-const CORNERS = ['Start', 'Prison', 'Vacation', 'Go to Prison'];
+const SINGLES: Record<string, [TileKind, string]> = {
+  C: ['chest', 'Treasure'],
+  X: ['chance', 'Surprise'],
+  N: ['news', 'World News'],
+  K: ['customs', 'Customs'],
+  B: ['committee', 'Committee'],
+  Z: ['bazaar', 'Bazaar'],
+  W: ['shaadi', 'Shaadi Hall'],
+  F: ['plots', 'Property Dealer'],
+  L: ['parliament', 'EU Parliament'],
+  Q: ['festival', 'Festival'],
+  H: ['hostel', 'Hostel'],
+};
+
+/** Buyable tile kinds and their list price. */
+export const BUYABLE: Partial<Record<TileKind, number>> = {
+  property: 0,
+  airport: 200,
+  utility: 150,
+  port: 180,
+  toll: 160,
+  stadium: 150,
+};
+
+export function isBuyable(kind: TileKind): boolean {
+  return kind in BUYABLE;
+}
+
+/** Tiles that can host the general Sabotage / Stock Exchange / Arcade squares. */
+const FLEX: TileKind[] = ['chance', 'chest', 'news', 'customs', 'bazaar', 'shaadi', 'hostel', 'festival'];
 
 const cache = new Map<string, BoardMap>();
 
 function buildMap(def: MapDef, size: BoardSize): BoardMap {
   const side = size / 4 - 1;
+  const pattern = def.layout[size];
   const groups = GROUP_ORDER.filter(
     (g) => !g.extra || (g.extra === 'large' && size >= 48) || (g.extra === 'mega' && size >= 56),
   );
-  const setSizes = SET_SIZES[size];
+  const totalCities = pattern.join('').split('').filter((c) => c === 'P').length;
+  const sizes = setSizes(groups.length, totalCities);
+  const classicPrices = size === 40 && totalCities === CLASSIC.length;
   const tiles: Tile[] = [];
   let city = 0;
   let setIdx = 0;
   let inSet = 0;
-  const counters = { A: 0, U: 0, T: 0 };
-  const cityPrices: number[] = [];
+  const counters: Record<string, number> = {};
+  const next = (list: string[] | undefined, ch: string, fallback: string) => {
+    const n = (counters[ch] = (counters[ch] ?? 0) + 1) - 1;
+    return list?.[n] ?? `${fallback} ${n + 1}`;
+  };
 
-  // classic prices for the standard board, interpolated prices otherwise
-  const totalCities = setSizes.reduce((a, b) => a + b, 0);
-  for (let s = 0; s < setSizes.length; s++) {
-    const base = size === 40 ? 0 : 60 + Math.round(((s / (setSizes.length - 1)) * 290) / 10) * 10;
-    for (let k = 0; k < setSizes[s]; k++) {
-      if (size === 40) cityPrices.push(CLASSIC[cityPrices.length][0]);
-      else {
-        const last = k === setSizes[s] - 1;
-        cityPrices.push(base + (last ? (s === setSizes.length - 1 ? 50 : 20) : 0));
-      }
+  // classic prices for the standard board, interpolated prices per set otherwise
+  const cityPrices: number[] = [];
+  for (let st = 0; st < sizes.length; st++) {
+    const base = 60 + Math.round(((st / (sizes.length - 1)) * 290) / 10) * 10;
+    for (let k = 0; k < sizes[st]; k++) {
+      if (classicPrices) cityPrices.push(CLASSIC[cityPrices.length][0]);
+      else cityPrices.push(base + (k === sizes[st] - 1 ? (st === sizes.length - 1 ? 50 : 20) : 0));
     }
   }
-  void totalCities;
 
   for (let i = 0; i < size; i++) {
-    const cornerAt = i % (side + 1) === 0;
-    if (cornerAt) {
+    if (i % (side + 1) === 0) {
       const c = i / (side + 1);
-      tiles.push({ index: i, name: CORNERS[c], kind: (['go', 'jail', 'parking', 'gotojail'] as const)[c] });
+      tiles.push({ index: i, name: def.corners[c], kind: (['go', 'jail', 'parking', 'gotojail'] as const)[c] });
       continue;
     }
-    const sideNo = Math.floor(i / (side + 1));
-    const ch = SIDES[size][sideNo][(i % (side + 1)) - 1];
+    const ch = pattern[Math.floor(i / (side + 1))][(i % (side + 1)) - 1];
     if (ch === 'P') {
       const g = groups[setIdx];
-      const names = def.groups[g.id].cities;
-      const n = setSizes[setIdx];
-      const name = names[3 - n + inSet];
+      const n = sizes[setIdx];
       const price = cityPrices[city];
-      const classic = size === 40 ? CLASSIC[city] : null;
+      const classic = classicPrices ? CLASSIC[city] : null;
       tiles.push({
         index: i,
-        name,
+        name: def.groups[g.id].cities[3 - n + inSet],
         kind: 'property',
         group: g.id,
         price,
@@ -171,18 +240,23 @@ function buildMap(def: MapDef, size: BoardSize): BoardMap {
         houseCost: classic ? classic[2] : houseCostFor(price),
       });
       city++;
-      inSet++;
-      if (inSet === n) {
+      if (++inSet === n) {
         setIdx++;
         inSet = 0;
       }
-    } else if (ch === 'A') tiles.push({ index: i, name: def.airports[counters.A++], kind: 'airport', price: 200 });
-    else if (ch === 'U') tiles.push({ index: i, name: def.utilities[counters.U++], kind: 'utility', price: 150 });
+    } else if (ch === 'A') tiles.push({ index: i, name: next(def.airports, 'A', 'Airport'), kind: 'airport', price: BUYABLE.airport });
+    else if (ch === 'U') tiles.push({ index: i, name: next(def.utilities, 'U', 'Utility'), kind: 'utility', price: BUYABLE.utility });
+    else if (ch === 'O') tiles.push({ index: i, name: next(def.ports, 'O', 'Port'), kind: 'port', price: BUYABLE.port });
+    else if (ch === 'M') tiles.push({ index: i, name: next(def.tolls, 'M', 'Toll Plaza'), kind: 'toll', price: BUYABLE.toll });
+    else if (ch === 'S') tiles.push({ index: i, name: next(def.stadiums, 'S', 'Stadium'), kind: 'stadium', price: BUYABLE.stadium });
+    else if (ch === 'Y') tiles.push({ index: i, name: next(def.museums, 'Y', 'Museum'), kind: 'museum' });
     else if (ch === 'T') {
-      const t = counters.T++;
-      tiles.push({ index: i, name: def.taxes[t], kind: 'tax', tax: t === 0 ? 200 : 100 });
-    } else if (ch === 'C') tiles.push({ index: i, name: 'Treasure', kind: 'chest' });
-    else tiles.push({ index: i, name: 'Surprise', kind: 'chance' });
+      const t = counters.T ?? 0;
+      tiles.push({ index: i, name: next(def.taxes, 'T', 'Tax'), kind: 'tax', tax: t === 0 ? 200 : 100 });
+    } else {
+      const [kind, name] = SINGLES[ch] ?? SINGLES.X;
+      tiles.push({ index: i, name, kind });
+    }
   }
 
   const outGroups: Record<string, Group> = {};
@@ -194,14 +268,36 @@ function buildMap(def: MapDef, size: BoardSize): BoardMap {
       name: d.name,
       ...(/^[a-z]{2}$/.test(d.mark) ? { flag: d.mark } : { badge: d.mark }),
       tiles: tiles.filter((t) => t.group === g.id).map((t) => t.index),
+      ...(d.region ? { region: d.region } : {}),
+      ...(d.currency ? { currency: d.currency } : {}),
+      ...(d.nonEU ? { nonEU: true } : {}),
     };
   }
 
   const q = side + 1;
-  const firstOf = (kind: Tile['kind'], from: number, to: number, last = false) => {
-    const list = tiles.filter((t) => t.kind === kind && t.index > from && t.index < to);
-    return (last ? list[list.length - 1] : list[0])?.index ?? -1;
+  const ofKind = (k: TileKind) => tiles.filter((t) => t.kind === k).map((t) => t.index);
+
+  // general special squares take over flex tiles, preferring the classic spots
+  const flex = tiles.filter((t) => FLEX.includes(t.kind)).map((t) => t.index);
+  const used = new Set<number>();
+  const take = (from: number, to: number, last: boolean) => {
+    const inRange = flex.filter((i) => i > from && i < to && !used.has(i));
+    const pickFrom = inRange.length ? inRange : flex.filter((i) => !used.has(i));
+    const i = (last ? pickFrom[pickFrom.length - 1] : pickFrom[0]) ?? -1;
+    if (i >= 0) used.add(i);
+    return i;
   };
+  const arcade = take(q, 2 * q, true);
+  const sabotage = take(2 * q, 3 * q, false);
+  const stocks = take(3 * q, size, false);
+
+  const routes: Route[] = [];
+  if (def.routes) {
+    const list = ofKind(def.routes.of === 'A' ? 'airport' : 'toll');
+    for (const [a, b, name, color] of def.routes.pairs) {
+      if (list[a] !== undefined && list[b] !== undefined) routes.push({ a: list[a], b: list[b], kind: def.routes.kind, name, color });
+    }
+  }
 
   return {
     id: def.id,
@@ -214,43 +310,26 @@ function buildMap(def: MapDef, size: BoardSize): BoardMap {
     jail: q,
     parking: 2 * q,
     goToJail: 3 * q,
-    airports: tiles.filter((t) => t.kind === 'airport').map((t) => t.index),
-    utilities: tiles.filter((t) => t.kind === 'utility').map((t) => t.index),
-    specials: {
-      arcade: firstOf('chest', q, 2 * q, true),
-      sabotage: firstOf('chance', 2 * q, 3 * q),
-      stocks: firstOf('chest', 3 * q, size),
-    },
+    airports: ofKind('airport'),
+    utilities: ofKind('utility'),
+    ports: ofKind('port'),
+    tolls: ofKind('toll'),
+    stadiums: ofKind('stadium'),
+    museums: ofKind('museum'),
+    routes,
+    specials: { arcade, sabotage, stocks },
   };
 }
 
 // ---------- the maps ----------
-
-const WORLD_DEF: Omit<MapDef, 'id' | 'name' | 'blurb'> = {
-  groups: {
-    brown: { name: 'Egypt', mark: 'eg', cities: ['Luxor', 'Cairo', 'Giza'] },
-    teal: { name: 'Brazil', mark: 'br', cities: ['Salvador', 'São Paulo', 'Rio de Janeiro'] },
-    lightblue: { name: 'Turkey', mark: 'tr', cities: ['Ankara', 'Izmir', 'Istanbul'] },
-    pink: { name: 'Italy', mark: 'it', cities: ['Venice', 'Milan', 'Rome'] },
-    violet: { name: 'India', mark: 'in', cities: ['Jaipur', 'Mumbai', 'Delhi'] },
-    orange: { name: 'Germany', mark: 'de', cities: ['Hamburg', 'Munich', 'Berlin'] },
-    red: { name: 'China', mark: 'cn', cities: ['Shenzhen', 'Shanghai', 'Hong Kong'] },
-    lime: { name: 'Australia', mark: 'au', cities: ['Perth', 'Melbourne', 'Sydney'] },
-    yellow: { name: 'United Kingdom', mark: 'gb', cities: ['Liverpool', 'Manchester', 'London'] },
-    green: { name: 'Japan', mark: 'jp', cities: ['Kyoto', 'Osaka', 'Tokyo'] },
-    silver: { name: 'UAE', mark: 'ae', cities: ['Sharjah', 'Abu Dhabi', 'Dubai'] },
-    blue: { name: 'USA', mark: 'us', cities: ['Los Angeles', 'San Francisco', 'New York'] },
-  },
-  airports: ['JFK Airport', 'Heathrow', 'Dubai Airport', 'Changi Airport'],
-  utilities: ['Power Grid', 'Water Works'],
-  taxes: ['Income Tax', 'Luxury Tax'],
-};
 
 const DEFS: MapDef[] = [
   {
     id: 'classic',
     name: 'Classic',
     blurb: 'Richup-style world board. No map specials',
+    layout: CLASSIC_LAYOUT,
+    corners: ['Start', 'Prison', 'Vacation', 'Go to Prison'],
     groups: {
       brown: { name: 'Brazil', mark: 'br', cities: ['São Paulo', 'Salvador', 'Rio'] },
       teal: { name: 'Canada', mark: 'ca', cities: ['Montreal', 'Vancouver', 'Toronto'] },
@@ -272,13 +351,45 @@ const DEFS: MapDef[] = [
   {
     id: 'world',
     name: 'World Tour',
-    blurb: 'World cities plus wars, exchange rates and the Olympics',
-    ...WORLD_DEF,
+    blurb: 'Flight routes, shipping ports, world news, time zones and continents',
+    layout: WORLD_LAYOUT,
+    corners: ['Greenwich', 'Detention', 'Duty-Free', 'Deported'],
+    groups: {
+      brown: { name: 'Egypt', mark: 'eg', cities: ['Luxor', 'Cairo', 'Giza'], region: 'Africa & Middle East' },
+      teal: { name: 'Brazil', mark: 'br', cities: ['Salvador', 'São Paulo', 'Rio de Janeiro'], region: 'Americas' },
+      lightblue: { name: 'Mexico', mark: 'mx', cities: ['Cancún', 'Guadalajara', 'Mexico City'], region: 'Americas' },
+      pink: { name: 'Italy', mark: 'it', cities: ['Venice', 'Milan', 'Rome'], region: 'Europe' },
+      violet: { name: 'India', mark: 'in', cities: ['Jaipur', 'Mumbai', 'Delhi'], region: 'Asia-Pacific' },
+      orange: { name: 'Germany', mark: 'de', cities: ['Hamburg', 'Munich', 'Berlin'], region: 'Europe' },
+      red: { name: 'China', mark: 'cn', cities: ['Shenzhen', 'Shanghai', 'Hong Kong'], region: 'Asia-Pacific' },
+      lime: { name: 'Australia', mark: 'au', cities: ['Perth', 'Melbourne', 'Sydney'], region: 'Asia-Pacific' },
+      yellow: { name: 'United Kingdom', mark: 'gb', cities: ['Liverpool', 'Manchester', 'London'], region: 'Europe' },
+      green: { name: 'Japan', mark: 'jp', cities: ['Kyoto', 'Osaka', 'Tokyo'], region: 'Asia-Pacific' },
+      silver: { name: 'UAE', mark: 'ae', cities: ['Sharjah', 'Abu Dhabi', 'Dubai'], region: 'Africa & Middle East' },
+      blue: { name: 'USA', mark: 'us', cities: ['Los Angeles', 'San Francisco', 'New York'], region: 'Americas' },
+    },
+    airports: ['JFK Airport', 'Heathrow', 'Dubai Airport', 'Changi Airport', 'Haneda Airport', 'Sydney Airport'],
+    ports: ['Port of Rotterdam', 'Port of Shanghai'],
+    taxes: ['Income Tax'],
+    routes: {
+      kind: 'flight',
+      of: 'A',
+      pairs: [
+        [0, 2, 'JFK ✈ Dubai', '#7dd3fc'],
+        [0, 5, 'JFK ✈ Sydney', '#7dd3fc'],
+        [1, 3, 'Heathrow ✈ Changi', '#7dd3fc'],
+        [1, 4, 'Heathrow ✈ Haneda', '#7dd3fc'],
+        [2, 4, 'Dubai ✈ Haneda', '#7dd3fc'],
+        [3, 5, 'Changi ✈ Sydney', '#7dd3fc'],
+      ],
+    },
   },
   {
     id: 'pakistan',
     name: 'Pakistan',
-    blurb: 'Load-shedding, monsoons, cricket and chai-pani',
+    blurb: 'Motorway tolls, committees, bazaars, plot files and chai-pani',
+    layout: PAKISTAN_LAYOUT,
+    corners: ['Start', 'Thana', 'Northern Areas', 'Naka'],
     groups: {
       brown: { name: 'Balochistan', mark: '🏜️', cities: ['Turbat', 'Gwadar', 'Quetta'] },
       teal: { name: 'Azad Kashmir', mark: '🌲', cities: ['Mirpur', 'Rawalakot', 'Muzaffarabad'] },
@@ -293,31 +404,44 @@ const DEFS: MapDef[] = [
       silver: { name: 'Karachi Seafront', mark: '🏖️', cities: ['Do Darya', 'Sea View', 'Hawkes Bay'] },
       blue: { name: 'Islamabad', mark: '🏛️', cities: ['G-6', 'F-7', 'E-7'] },
     },
-    airports: ['Jinnah Airport', 'Allama Iqbal Airport', 'Islamabad Airport', 'Bacha Khan Airport'],
-    utilities: ['Power House', 'Tarbela Dam'],
+    airports: ['Jinnah Airport', 'Islamabad Airport'],
+    tolls: ['M-9 Toll Plaza', 'M-2 Toll Plaza'],
+    stadiums: ['National Stadium', 'Gaddafi Stadium'],
     taxes: ['Income Tax', 'Super Tax'],
+    routes: { kind: 'road', of: 'M', pairs: [[0, 1, 'Motorway', '#facc15']] },
   },
   {
     id: 'europe',
     name: 'Euro Trip',
-    blurb: 'Rail passes, seasons, Eurovision and exit votes',
+    blurb: 'Rail lines, borders, currencies, museums, festivals and a parliament',
+    layout: EUROPE_LAYOUT,
+    corners: ['Start', 'Prison', 'Riviera', 'Go to Prison'],
     groups: {
       brown: { name: 'Portugal', mark: 'pt', cities: ['Faro', 'Porto', 'Lisbon'] },
-      teal: { name: 'Poland', mark: 'pl', cities: ['Gdańsk', 'Kraków', 'Warsaw'] },
+      teal: { name: 'Poland', mark: 'pl', cities: ['Gdańsk', 'Kraków', 'Warsaw'], currency: 'zł' },
       lightblue: { name: 'Greece', mark: 'gr', cities: ['Thessaloniki', 'Mykonos', 'Athens'] },
       pink: { name: 'Netherlands', mark: 'nl', cities: ['Utrecht', 'Rotterdam', 'Amsterdam'] },
       violet: { name: 'Italy', mark: 'it', cities: ['Florence', 'Milan', 'Rome'] },
       orange: { name: 'Spain', mark: 'es', cities: ['Valencia', 'Barcelona', 'Madrid'] },
-      red: { name: 'Switzerland', mark: 'ch', cities: ['Basel', 'Geneva', 'Zurich'] },
+      red: { name: 'Switzerland', mark: 'ch', cities: ['Basel', 'Geneva', 'Zurich'], currency: 'CHF', nonEU: true },
       lime: { name: 'Germany', mark: 'de', cities: ['Hamburg', 'Munich', 'Berlin'] },
-      yellow: { name: 'Sweden', mark: 'se', cities: ['Malmö', 'Gothenburg', 'Stockholm'] },
-      green: { name: 'Norway', mark: 'no', cities: ['Tromsø', 'Bergen', 'Oslo'] },
-      silver: { name: 'United Kingdom', mark: 'gb', cities: ['Edinburgh', 'Manchester', 'London'] },
+      yellow: { name: 'Sweden', mark: 'se', cities: ['Malmö', 'Gothenburg', 'Stockholm'], currency: 'kr' },
+      green: { name: 'Norway', mark: 'no', cities: ['Tromsø', 'Bergen', 'Oslo'], currency: 'kr', nonEU: true },
+      silver: { name: 'United Kingdom', mark: 'gb', cities: ['Edinburgh', 'Manchester', 'London'], currency: '£', nonEU: true },
       blue: { name: 'France', mark: 'fr', cities: ['Lyon', 'Nice', 'Paris'] },
     },
-    airports: ['Amsterdam Centraal', 'Frankfurt Hbf', 'Madrid Atocha', 'Paris Gare du Nord'],
-    utilities: ['Power Grid', 'Water Works'],
-    taxes: ['Income Tax', 'Luxury Tax'],
+    airports: ['Paris Gare du Nord', 'Wien Hbf', 'Frankfurt Hbf', 'Madrid Atocha', 'Milano Centrale', 'Amsterdam Centraal'],
+    museums: ['The Louvre', 'The Prado', 'Rijksmuseum'],
+    taxes: ['Income Tax', 'VAT'],
+    routes: {
+      kind: 'rail',
+      of: 'A',
+      pairs: [
+        [0, 3, 'Red line', '#f87171'],
+        [2, 5, 'Blue line', '#60a5fa'],
+        [1, 4, 'Orient Express', '#fbbf24'],
+      ],
+    },
   },
 ];
 
@@ -361,3 +485,8 @@ export const SPECIAL_NAMES: Record<SpecialKind, string> = {
   stocks: 'Stock Exchange',
   arcade: 'Arcade',
 };
+
+/** Partner tiles reachable by a route from `tile`. */
+export function routesFrom(map: BoardMap, tile: number): { to: number; route: Route }[] {
+  return map.routes.flatMap((r) => (r.a === tile ? [{ to: r.b, route: r }] : r.b === tile ? [{ to: r.a, route: r }] : []));
+}

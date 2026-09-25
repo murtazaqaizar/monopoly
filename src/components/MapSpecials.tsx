@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { capitalOf, mapOf, specialOn, tileOf } from '../../shared/engine';
-import type { Player, PublicState } from '../../shared/types';
+import { capitalOf, LAWS, MAX_PLOTS, NAKA_FINE, SHOP_ITEMS, mapOf, sideOf, specialOn, tileOf } from '../../shared/engine';
+import type { LawId, Player, PublicState } from '../../shared/types';
+import { Avatar } from './Avatar';
 import { send, useNow, useSnapshot } from '../net';
 import { GroupMark } from './Mark';
 
@@ -23,6 +24,17 @@ export function SpecialStatus({ state, me }: { state: PublicState; me: string | 
   if (on('eu.strike') && sp.strike > 0) chips.push({ text: '🪧 Train strike', tone: 'hot' });
   if (on('eu.seasons')) chips.push({ text: sp.season === 'summer' ? '☀️ Summer' : '❄️ Winter', tone: 'event' });
   if (on('eu.exit') && sp.exited) chips.push({ text: `🗳️ ${groupName(state, sp.exited)} left (+50%)` });
+  if (on('world.timezones')) chips.push({ text: `🌙 Night on side ${sp.night + 1} (rent ½)`, tone: 'event' });
+  for (const b of sp.boosts ?? []) chips.push({ text: `📰 ${b.label.replace(/\.$/, '')}`, tone: b.factor >= 1 ? 'gold' : 'hot' });
+  if (sp.committee > 0) chips.push({ text: `🤝 Committee pot $${sp.committee}`, tone: 'gold' });
+  if (mapOf(state).tiles.some((t) => t.kind === 'plots')) {
+    const held = me ? sp.plots.owned[me] ?? 0 : 0;
+    chips.push({ text: `📄 Plot file $${sp.plots.value}${held ? ` · you hold ${held}` : ''}` });
+  }
+  if (sp.law) chips.push({ text: `⚖️ ${LAWS[sp.law.id].name} · ${sp.law.roundsLeft} rounds`, tone: 'event' });
+  if (sp.culture > 0) chips.push({ text: `🏛️ Culture prize $${sp.culture + 100}` });
+  for (const pid of Object.keys(sp.away ?? {}))
+    chips.push({ text: `🏔️ ${state.players.find((p) => p.id === pid)?.name} is up north (rent x2)` });
   if (!chips.length) return null;
   return (
     <div className="status-strip">
@@ -35,24 +47,31 @@ export function SpecialStatus({ state, me }: { state: PublicState; me: string | 
   );
 }
 
-/** Connecting flight (World) or rail pass (Euro Trip) after landing on an airport. */
+/** A ride along a route: World flights, Euro rail lines, the Pakistan motorway. */
 export function TravelChoice({ state, me }: { state: PublicState; me: Player }) {
   const map = mapOf(state);
-  const cost = state.turn?.travel?.cost ?? 0;
-  const rail = state.settings.mapId === 'europe';
+  const offer = state.turn?.travel;
+  if (!offer) return null;
+  const icon = offer.via === 'flight' ? '✈️' : offer.via === 'rail' ? '🚆' : '🛣️';
+  const verb = offer.via === 'flight' ? 'Fly on' : offer.via === 'rail' ? 'Ride the line' : 'Take the motorway';
   return (
     <div className="actions">
       <p className="hint">
-        {rail ? '🚆' : '✈️'} {rail ? 'Take the train' : 'Catch a connecting flight'} {cost ? `for $${cost}` : '(free night train)'}?
+        {icon} {verb}? {offer.cost ? `$${offer.cost} fare, paid to the destination's owner` : 'Free ride'}
       </p>
       <div className="row">
-        {map.airports
-          .filter((i) => i !== me.position)
-          .map((i) => (
-            <button key={i} className="btn" disabled={me.cash < cost} onClick={() => send({ type: 'travel', tile: i })}>
-              {map.tiles[i].name}
+        {offer.to.map((i) => {
+          const own = state.properties[i];
+          const owner = own && state.players.find((p) => p.id === own.owner);
+          const fare = own?.owner === me.id ? 0 : offer.cost;
+          const route = map.routes.find((r) => (r.a === i && r.b === me.position) || (r.b === i && r.a === me.position));
+          return (
+            <button key={i} className="btn" disabled={me.cash < fare} onClick={() => send({ type: 'travel', tile: i })}>
+              {owner && <Avatar player={owner} size={14} />} {map.tiles[i].name}
+              <small className="muted"> {route?.name} · ${fare}</small>
             </button>
-          ))}
+          );
+        })}
         <button className="btn ghost" onClick={() => send({ type: 'skipSpecial' })}>
           Stay
         </button>
@@ -65,6 +84,7 @@ export function TravelChoice({ state, me }: { state: PublicState; me: Player }) 
 export function BribeChoice({ state }: { state: PublicState }) {
   const b = state.turn?.bribe;
   if (!b) return null;
+  if (b.kind === 'naka') return <NakaChoice state={state} />;
   const jail = b.kind === 'jail';
   return (
     <div className="actions">
@@ -76,6 +96,127 @@ export function BribeChoice({ state }: { state: PublicState }) {
         </button>
         <button className="btn big" onClick={() => send({ type: 'bribe', offer: false })}>
           {jail ? 'Go quietly' : 'Pay normally'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Naka checkpoint (Pakistan): pay the fine, try chai-pani, or go to the Thana. */
+function NakaChoice({ state }: { state: PublicState }) {
+  const me = state.players.find((p) => p.id === state.turn?.playerId);
+  const bribe = specialOn(state, 'pk.bribe');
+  return (
+    <div className="actions">
+      <p className="hint">🚧 Naka! The police want your papers, and you have none.</p>
+      <div className="row">
+        <button className="btn primary big" disabled={(me?.cash ?? 0) < NAKA_FINE} onClick={() => send({ type: 'bribe', offer: false, fine: true })}>
+          Pay ${NAKA_FINE} fine
+        </button>
+        {bribe && (
+          <button className="btn big" disabled={(me?.cash ?? 0) < 50} onClick={() => send({ type: 'bribe', offer: true })}>
+            Chai-pani $50
+          </button>
+        )}
+        <button className="btn big ghost" onClick={() => send({ type: 'bribe', offer: false })}>
+          Go to the Thana
+        </button>
+      </div>
+      {bribe && <p className="muted small">Chai-pani works 70% of the time. Caught, and it's the Thana anyway.</p>}
+    </div>
+  );
+}
+
+/** Duty-Free counter (World) or a bazaar stall with haggling (Pakistan). */
+export function ShopChoice({ state, me }: { state: PublicState; me: Player }) {
+  const shop = state.turn?.shop;
+  if (!shop) return null;
+  const bazaar = shop.kind === 'bazaar';
+  return (
+    <div className="actions">
+      <p className="hint">
+        {bazaar ? '🧺 Bazaar stall' : '🛍️ Duty-Free'}
+        {bazaar ? ` · haggles left ${2 - shop.haggles}` : ' · buy one item'}
+      </p>
+      <div className="shop">
+        {shop.items.map((it, i) => (
+          <div key={it.item} className="shop-item">
+            <b>{SHOP_ITEMS[it.item].name}</b>
+            <span className="muted small">{SHOP_ITEMS[it.item].text}</span>
+            <button className="btn primary small" disabled={me.cash < it.price} onClick={() => send({ type: 'shopBuy', index: i })}>
+              Buy ${it.price}
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="row">
+        {bazaar && shop.haggles < 2 && (
+          <button className="btn" onClick={() => send({ type: 'haggle' })} title="Roll: 3-6 knocks 15-30% off, 2 raises it, 1 gets you thrown out">
+            🎲 Haggle
+          </button>
+        )}
+        <button className="btn ghost" onClick={() => send({ type: 'skipSpecial' })}>
+          Walk away
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Property dealer (Pakistan): buy plot files that float in value. */
+export function PlotsChoice({ state, me }: { state: PublicState; me: Player }) {
+  const plots = state.special.plots;
+  const held = plots.owned[me.id] ?? 0;
+  return (
+    <div className="actions">
+      <p className="hint">📄 Property dealer · a plot file costs ${plots.value} today</p>
+      <p className="muted small">
+        Its value moves every round (x0.8 to x1.3). Sell any time on your turn. You hold {held} of {MAX_PLOTS}.
+      </p>
+      <div className="row">
+        <button className="btn primary" disabled={held >= MAX_PLOTS || me.cash < plots.value} onClick={() => send({ type: 'buyPlot' })}>
+          Buy a file ${plots.value}
+        </button>
+        <button className="btn ghost" onClick={() => send({ type: 'skipSpecial' })}>
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** EU Parliament (Euro Trip): table a law for everyone to vote on. */
+export function ParliamentChoice() {
+  return (
+    <div className="actions">
+      <p className="hint">⚖️ EU Parliament · propose a law. Everyone votes; it needs more yes than no.</p>
+      <div className="pick-grid">
+        {(Object.keys(LAWS) as LawId[]).map((id) => (
+          <button key={id} className="pick-card law" onClick={() => send({ type: 'propose', law: id })}>
+            <span className="pick-title">{LAWS[id].name}</span>
+            <span className="muted small">{LAWS[id].text}</span>
+          </button>
+        ))}
+      </div>
+      <button className="btn ghost" onClick={() => send({ type: 'skipSpecial' })}>
+        Skip
+      </button>
+    </div>
+  );
+}
+
+/** Northern Areas (Pakistan): go on a trip and let your cities earn double. */
+export function TripChoice() {
+  return (
+    <div className="actions">
+      <p className="hint">🏔️ Northern Areas trip?</p>
+      <p className="muted small">Skip your next turn, but every city you own earns double rent while you're away.</p>
+      <div className="row">
+        <button className="btn primary big" onClick={() => send({ type: 'trip', go: true })}>
+          Go north
+        </button>
+        <button className="btn big" onClick={() => send({ type: 'trip', go: false })}>
+          Stay
         </button>
       </div>
     </div>
@@ -138,17 +279,40 @@ export function WarPanel({ state, me }: { state: PublicState; me: Player }) {
 export function Showtime({ state, me }: { state: PublicState; me: string | null }) {
   const { offset } = useSnapshot();
   const sp = state.special;
-  const now = useNow(250, !!(sp.vote || sp.match)) + offset;
+  const now = useNow(250, !!(sp.vote || sp.match || sp.bill)) + offset;
   const [amount, setAmount] = useState(100);
   const map = mapOf(state);
   const canAct = !!me && !state.players.find((p) => p.id === me)?.bankrupt;
 
   const vote = sp.vote && now < sp.vote.endsAt ? sp.vote : null;
   const match = sp.match && now < sp.match.endsAt ? sp.match : null;
-  if (!vote && !match) return null;
+  const bill = sp.bill && now < sp.bill.endsAt ? sp.bill : null;
+  if (!vote && !match && !bill) return null;
 
   return (
     <div className="showtime">
+      {bill && (
+        <div className="show-card">
+          <p className="hint">
+            ⚖️ Vote: {LAWS[bill.law].name} · {Math.ceil((bill.endsAt - now) / 1000)}s
+          </p>
+          <p className="muted small">{LAWS[bill.law].text}</p>
+          {canAct && me && bill.votes[me] !== undefined ? (
+            <p className="muted small">You voted {bill.votes[me] ? 'yes' : 'no'}</p>
+          ) : (
+            canAct && (
+              <div className="row">
+                <button className="btn small primary" onClick={() => send({ type: 'billVote', yes: true })}>
+                  Yes
+                </button>
+                <button className="btn small" onClick={() => send({ type: 'billVote', yes: false })}>
+                  No
+                </button>
+              </div>
+            )
+          )}
+        </div>
+      )}
       {vote && (
         <div className="show-card">
           <p className="hint">
@@ -226,12 +390,19 @@ export function tileEffects(state: PublicState, index: number): string[] {
     if (index % q !== 0 && Math.floor(index / q) === sp.lockdown.side) out.push('fx-lock');
   }
   if ((on('eu.heritage') || on('world.wonders')) && g && capitalOf(state, g) === index) out.push('fx-capital');
+  if (on('world.timezones') && sideOf(state, index) === sp.night) out.push('fx-night');
+  for (const b of sp.boosts ?? []) {
+    if ((b.group && b.group === g) || (b.kind && b.kind === tile.kind)) out.push(b.factor >= 1 ? 'fx-boost' : 'fx-dim');
+  }
+  if (on('eu.seasons') && sp.season === 'winter' && g && ['red', 'green'].includes(g)) out.push('fx-snow');
   return out;
 }
 
 /** Exchange rate label for a set (World Tour), e.g. "+12%". */
 export function rateLabel(state: PublicState, group: string | undefined): string | null {
-  if (!group || !specialOn(state, 'world.fx')) return null;
+  if (!group) return null;
+  const floating = specialOn(state, 'eu.currency') && !!mapOf(state).groups[group]?.currency;
+  if (!specialOn(state, 'world.fx') && !floating) return null;
   const r = state.special.rates[group] ?? 1;
   if (Math.abs(r - 1) < 0.005) return null;
   const pct = Math.round((r - 1) * 100);

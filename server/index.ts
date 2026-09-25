@@ -223,7 +223,7 @@ io.on('connection', (socket: GameSocket) => {
       while (rooms.has(code)) code = makeCode();
       const playerId = nanoid(10);
       const token = nanoid(24);
-      const state = createGame(code, { id: playerId, name: input?.name, color: input?.color }, (Math.random() * 2 ** 31) | 0);
+      const state = createGame(code, { id: playerId, name: input?.name, color: input?.color, piece: input?.piece }, (Math.random() * 2 ** 31) | 0);
       const room: Room = {
         state,
         tokens: new Map([[token, playerId]]),
@@ -265,7 +265,7 @@ io.on('connection', (socket: GameSocket) => {
       if (!input?.name) return ack({ ok: false, error: room.state.phase === 'lobby' ? 'need-name' : 'need-name-spectate' });
       const playerId = nanoid(10);
       const token = nanoid(24);
-      room.state = addPlayer(room.state, { id: playerId, name: input.name, color: input.color ?? '' });
+      room.state = addPlayer(room.state, { id: playerId, name: input.name, color: input.color ?? '', piece: input.piece });
       room.tokens.set(token, playerId);
       seat(room, playerId);
       broadcast(room);

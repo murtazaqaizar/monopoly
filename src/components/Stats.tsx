@@ -111,12 +111,28 @@ export function EndSummary({ state, onReplay }: { state: PublicState; onReplay: 
   const landlord = stats.sort((a, b) => b[1].rentReceived - a[1].rentReceived)[0];
   const minutes = state.startedAt ? Math.round((state.log[state.log.length - 1]?.at - state.startedAt) / 60000) : 0;
 
+  const top = ranked.slice(0, 3);
+  // podium order on screen: 2nd, 1st, 3rd
+  const steps = [top[1], top[0], top[2]].filter(Boolean);
   return (
     <div className="summary">
-      <ol className="podium">
-        {ranked.map((p, i) => (
-          <li key={p.id} className={i === 0 ? 'first' : ''}>
-            <span className="rank">{i === 0 ? <Trophy size={16} /> : i + 1}</span>
+      <div className="podium-steps" aria-label="Podium">
+        {steps.map((p) => {
+          const place = ranked.indexOf(p) + 1;
+          return (
+            <div key={p.id} className={`step place-${place}`} style={{ ['--c' as string]: p.color }}>
+              <Avatar player={p} size={place === 1 ? 46 : 36} />
+              <b>{p.name}</b>
+              <span className="muted small">{p.bankrupt ? 'bankrupt' : `$${netWorth(state, p)}`}</span>
+              <div className="block">{place === 1 ? <Trophy size={20} /> : place}</div>
+            </div>
+          );
+        })}
+      </div>
+      <ol className="podium" start={4}>
+        {ranked.slice(3).map((p, i) => (
+          <li key={p.id}>
+            <span className="rank">{i + 4}</span>
             <Avatar player={p} size={24} />
             <b>{p.name}</b>
             <span className="muted">{p.bankrupt ? 'bankrupt' : `$${netWorth(state, p)}`}</span>

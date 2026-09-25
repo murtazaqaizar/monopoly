@@ -1,4 +1,4 @@
-import { MAP_DEFS, boardSizeFor, getMap, specialAt } from './board';
+import { MAP_DEFS, boardSizeFor, getMap, isBuyable, routesFrom, specialAt } from './board';
 import { deckFor, type Card, type CardTarget } from './cards';
 import type {
   Action,
@@ -6,14 +6,17 @@ import type {
   EventKind,
   FxKind,
   GameState,
+  LawId,
   Ownership,
   Player,
   PowerUpKind,
   PublicState,
   Settings,
+  ShopItem,
   SpecialState,
   SpeedFace,
   Tile,
+  TileKind,
   TradeOffer,
   TradeSide,
 } from './types';
@@ -54,6 +57,15 @@ export const POWER_UPS: Record<PowerUpKind, { name: string; text: string; target
 };
 
 export const BUILDING_NAMES = ['', '1 house', '2 houses', '3 houses', '4 houses', 'Hotel', 'Skyscraper', 'Landmark'];
+
+/** Board piece shapes a player can pick. */
+export const PIECES = ['car', 'plane', 'crown', 'ship', 'rocket', 'cat', 'dog', 'gem', 'anchor', 'bike', 'ghost', 'star'] as const;
+
+function cleanPiece(piece: string | undefined, players: Player[]): string {
+  const taken = new Set(players.map((p) => p.piece));
+  if (piece && (PIECES as readonly string[]).includes(piece) && !taken.has(piece)) return piece;
+  return PIECES.find((x) => !taken.has(x)) ?? PIECES[0];
+}
 
 export class GameError extends Error {}
 
@@ -318,6 +330,7 @@ export interface NewPlayer {
   id: string;
   name: string;
   color: string;
+  piece?: string;
 }
 
 function makePlayer(p: NewPlayer): Player {
@@ -341,6 +354,7 @@ function makePlayer(p: NewPlayer): Player {
     reverse: false,
     missed: 0,
     revived: false,
+    piece: p.piece ?? 'car',
   };
 }
 
@@ -360,7 +374,7 @@ export function createGame(code: string, host: NewPlayer, seed: number): GameSta
     hostId: host.id,
     phase: 'lobby',
     settings: { ...DEFAULT_SETTINGS },
-    players: [makePlayer({ ...host, name: cleanName(host.name), color: pickColor([], host.color) })],
+    players: [makePlayer({ ...host, name: cleanName(host.name), color: pickColor([], host.color), piece: cleanPiece(host.piece, []) })],
     properties: {},
     turn: null,
     auction: null,
@@ -424,6 +438,8 @@ export function upgradeState(old: GameState): GameState {
     s.turn.travel ??= null;
     s.turn.bribe ??= null;
     s.turn.attacked ??= false;
+    s.turn.shop ??= null;
+    if (s.turn.travel && !Array.isArray(s.turn.travel.to)) s.turn.travel = null;
   }
   s.special = { ...blankSpecial(), ...s.special };
   if (s.auction) {
@@ -448,7 +464,7 @@ export function addPlayer(prev: GameState, p: NewPlayer): GameState {
   const s = structuredClone(prev);
   const name = cleanName(p.name);
   if (s.players.some((x) => x.name.toLowerCase() === name.toLowerCase())) fail('That nickname is taken in this room');
-  s.players.push(makePlayer({ id: p.id, name, color: pickColor(s.players, p.color) }));
+  s.players.push(makePlayer({ id: p.id, name, color: pickColor(s.players, p.color), piece: cleanPiece(p.piece, s.players) }));
   syncSize(s);
   s.version++;
   return s;
@@ -507,6 +523,7 @@ export function nextDeadline(s: GameState): number | null {
     ...s.vetoQueue.map((v) => v.executeAt),
     s.special?.vote?.endsAt,
     s.special?.match?.endsAt,
+    s.special?.bill?.endsAt,
   ].filter((t): t is number => typeof t === 'number');
   return times.length ? Math.min(...times) : null;
 }
@@ -562,16 +579,54 @@ export function rentFor(s: View, index: number, diceSum: number, mod: LandMod = 
     if (own.houses > 0) rent = rentTable(tile)[own.houses];
     else rent = tile.rents![0] * (s.settings.doubleRentSet && ownsGroup(s, own.owner, tile.group!) ? 2 : 1);
   } else if (tile.kind === 'airport') {
-    const n = map.airports.filter((i) => s.properties[i]?.owner === own.owner).length;
-    rent = 25 * 2 ** (n - 1) * (mod.airportDouble ? 2 : 1);
+    rent = airportRent(s, index, own.owner) * (mod.airportDouble ? 2 : 1);
   } else if (tile.kind === 'utility') {
     const n = map.utilities.filter((i) => s.properties[i]?.owner === own.owner).length;
     rent = (n >= 2 || mod.utilityTen ? 10 : 4) * diceSum;
+  } else if (tile.kind === 'port') {
+    // trade routes: the more cities the owner holds on the port's side, the busier the port
+    const side = sideOf(s, index);
+    const cities = map.tiles.filter((t) => t.kind === 'property' && sideOf(s, t.index) === side && s.properties[t.index]?.owner === own.owner).length;
+    const both = map.ports.every((i) => s.properties[i]?.owner === own.owner);
+    rent = (25 + 20 * cities) * (both ? 2 : 1);
+  } else if (tile.kind === 'toll') {
+    rent = tollFee(s, own.owner) * 2;
+  } else if (tile.kind === 'stadium') {
+    const n = map.stadiums.filter((i) => s.properties[i]?.owner === own.owner).length;
+    rent = (matchDay(s) ? 120 : 15) * n;
   }
   if (s.event?.kind === 'crash') rent = rent / 2;
   if (s.event?.kind === 'surge') rent = rent * 1.5;
   rent *= specialRentFactor(s, index);
-  return Math.floor(rent * s.settings.rentSpeed);
+  rent = Math.floor(rent * s.settings.rentSpeed);
+  if (s.special?.law?.id === 'rentCap') rent = Math.min(rent, RENT_CAP);
+  return rent;
+}
+
+export const RENT_CAP = 250;
+
+/** Airport or station rent: World airports earn by their routes, other maps by how many you own. */
+export function airportRent(s: Pick<GameState, 'settings' | 'size' | 'properties'>, index: number, owner: string): number {
+  const map = mapOf(s);
+  if (map.id === 'world') {
+    const partners = routesFrom(map, index).filter((r) => s.properties[r.to]?.owner === owner).length;
+    return 40 + 60 * partners;
+  }
+  const n = map.airports.filter((i) => s.properties[i]?.owner === owner).length;
+  if (map.id === 'europe') return [25, 50, 100, 150, 200, 250][n - 1] ?? 25;
+  if (map.id === 'pakistan') return [50, 125][n - 1] ?? 50;
+  return 25 * 2 ** (n - 1);
+}
+
+/** What a motorway toll plaza charges each car that drives past. */
+export function tollFee(s: Pick<GameState, 'settings' | 'size' | 'properties'>, owner: string): number {
+  const map = mapOf(s);
+  return map.tolls.every((i) => s.properties[i]?.owner === owner) ? 40 : 20;
+}
+
+/** Cricket match day on the Pakistan map: stadiums fill up. */
+export function matchDay(s: Pick<GameState, 'settings' | 'special'>): boolean {
+  return specialOn(s, 'pk.cricket') && !!s.special?.cricket;
 }
 
 export function mortgageValue(tile: Tile): number {
@@ -602,6 +657,7 @@ export function netWorth(s: View, p: Player): number {
     for (let h = 0; h < own.houses; h++) total += Math.floor(buildCost(tile, h) / 2);
   }
   for (const [group, holders] of Object.entries(s.shares)) total += (holders[p.id] ?? 0) * sharePrice(s, group);
+  total += (s.special?.plots?.owned[p.id] ?? 0) * (s.special?.plots?.value ?? 0);
   return total;
 }
 
@@ -727,6 +783,7 @@ function passStart(s: GameState, ctx: Ctx, p: Player, exact: boolean) {
   }
   collect(s, ctx, p, salary, note);
   fx(s, 'start', p.id, { amount: salary });
+  if (s.special.law?.id === 'solidarity' && p.cash > 0) pay(s, ctx, p, null, Math.ceil(p.cash * 0.05), 'in solidarity tax', { toPot: true });
   if (p.bankLoan > 0) pay(s, ctx, p, null, Math.ceil(p.bankLoan * BANK_INTEREST), 'in bank loan interest');
   if (set.idleCashTax) {
     const limit = set.startingCash * 2;
@@ -758,9 +815,10 @@ function sendToJail(s: GameState, ctx: Ctx, p: Player) {
   p.position = mapOf(s).jail;
   p.inJail = true;
   p.jailTurns = 0;
+  delete s.special.sifarish[p.id];
   if (s.turn?.playerId === p.id) s.turn.extraRoll = false;
   fx(s, 'jail', p.id);
-  log(s, ctx, `${p.name} was sent to Prison`);
+  log(s, ctx, `${p.name} was sent to ${mapOf(s).tiles[mapOf(s).jail].name}`);
 }
 
 interface LandMod {
@@ -773,9 +831,39 @@ function moveBy(s: GameState, ctx: Ctx, p: Player, steps: number) {
   const from = p.position;
   const to = (((from + steps) % n) + n) % n;
   if (steps > 0 && to < from) passStart(s, ctx, p, to === 0);
+  if (steps > 0) alongTheWay(s, ctx, p, from, steps);
   p.position = to;
   land(s, ctx, p, {});
 }
+
+/** Motorway tolls for plazas driven past, and EU border fees for countries entered. */
+function alongTheWay(s: GameState, ctx: Ctx, p: Player, from: number, steps: number) {
+  const map = mapOf(s);
+  const path = Array.from({ length: steps }, (_, k) => (from + k + 1) % s.size);
+  if (specialOn(s, 'pk.tolls')) {
+    for (const i of path.slice(0, -1)) {
+      if (map.tiles[i].kind !== 'toll') continue;
+      const own = s.properties[i];
+      if (!own || own.owner === p.id || own.mortgaged || allianceBetween(s, p.id, own.owner)) continue;
+      const owner = s.players.find((x) => x.id === own.owner && !x.bankrupt);
+      if (!owner) continue;
+      pay(s, ctx, p, owner, tollFee(s, owner.id), `in tolls at ${map.tiles[i].name}`);
+      fx(s, 'toll', p.id, { tile: i, amount: tollFee(s, owner.id) });
+    }
+  }
+  if (specialOn(s, 'eu.borders')) {
+    const crossed = new Set<string>();
+    for (const i of path) {
+      const g = map.tiles[i].group;
+      if (!g || !map.groups[g].nonEU || crossed.has(g)) continue;
+      if (map.groups[g].tiles.some((t) => s.properties[t]?.owner === p.id)) continue;
+      crossed.add(g);
+      pay(s, ctx, p, null, BORDER_FEE, `at the ${map.groups[g].name} border`, { toPot: true });
+    }
+  }
+}
+
+export const BORDER_FEE = 20;
 
 function moveTo(s: GameState, ctx: Ctx, p: Player, to: number, mod: LandMod = {}) {
   if (to < p.position || (to === 0 && p.position !== 0)) passStart(s, ctx, p, to === 0);
@@ -865,19 +953,18 @@ function land(s: GameState, ctx: Ctx, p: Player, mod: LandMod) {
     s.turn!.mini = { shown: d6(s) };
     return;
   }
-  switch (tile.kind) {
-    case 'property':
-    case 'airport':
-    case 'utility': {
-      const own = s.properties[tile.index];
-      if (!own) {
-        s.turn!.stage = 'buy';
-        s.turn!.pendingTile = tile.index;
-        return;
-      }
-      if (own.owner !== p.id) chargeRent(s, ctx, p, tile, own, mod);
+  if (isBuyable(tile.kind)) {
+    const own = s.properties[tile.index];
+    if (!own) {
+      s.turn!.stage = 'buy';
+      s.turn!.pendingTile = tile.index;
       return;
     }
+    if (own.owner !== p.id) chargeRent(s, ctx, p, tile, own, mod);
+    return;
+  }
+  const mine = s.turn?.playerId === p.id;
+  switch (tile.kind) {
     case 'tax': {
       const tax = taxFor(s, p, tile);
       if (tax > 0 && specialOn(s, 'pk.bribe') && s.turn?.playerId === p.id && p.cash >= 50) {
@@ -894,22 +981,268 @@ function land(s: GameState, ctx: Ctx, p: Player, mod: LandMod) {
     case 'parking':
       if (s.settings.jackpot && s.pot > 0) {
         const won = s.pot;
-        collect(s, ctx, p, won, 'from the Vacation jackpot', false);
+        collect(s, ctx, p, won, `from the ${tile.name} jackpot`, false);
         s.pot = 0;
         fx(s, 'jackpot', p.id, { amount: won });
       }
+      if (!mine) return;
+      if (s.settings.mapId === 'world') openShop(s, 'dutyfree');
+      if (s.settings.mapId === 'pakistan') s.turn!.stage = 'trip';
       return;
     case 'chance':
     case 'chest':
       drawCard(s, ctx, p, tile.kind);
       return;
     case 'gotojail':
-      if (specialOn(s, 'pk.bribe') && s.turn?.playerId === p.id && p.cash >= 50) {
-        s.turn.stage = 'bribe';
-        s.turn.bribe = { kind: 'jail', tile: tile.index };
+      if (s.settings.mapId === 'world') return deport(s, ctx, p);
+      if (s.settings.mapId === 'pakistan' && mine) {
+        // Naka checkpoint: papers, a fine, chai-pani, or the Thana
+        if (p.jailCards > 0) {
+          p.jailCards--;
+          log(s, ctx, `${p.name} showed their papers at the ${tile.name} and drove on`);
+          return;
+        }
+        s.turn!.stage = 'bribe';
+        s.turn!.bribe = { kind: 'naka', tile: tile.index };
+        return;
+      }
+      if (specialOn(s, 'pk.bribe') && mine && p.cash >= 50) {
+        s.turn!.stage = 'bribe';
+        s.turn!.bribe = { kind: 'jail', tile: tile.index };
         return;
       }
       sendToJail(s, ctx, p);
+      return;
+    default:
+      mapTile(s, ctx, p, tile);
+      return;
+  }
+}
+
+// ---------- map tiles (World Tour, Pakistan, Euro Trip) ----------
+
+export const NAKA_FINE = 100;
+export const COMMITTEE_DUE = 20;
+export const SALAMI = 25;
+export const MAX_PLOTS = 3;
+export const MUSEUM_ENTRY = 30;
+export const CUSTOMS_DUTY = 25;
+
+export const SHOP_ITEMS: Record<ShopItem, { name: string; text: string }> = {
+  powerUp: { name: 'Power-up', text: 'A random power-up for your hand' },
+  jailCard: { name: 'Papers', text: 'Get out of jail (or past a checkpoint) free' },
+  insurance: { name: 'Insurance', text: `Half of big rents covered for ${INSURANCE_TURNS} turns` },
+  ups: { name: 'UPS', text: 'Your cities keep earning through load-shedding for 5 turns' },
+  cash: { name: 'Gold bangle', text: 'Sell it back to the bank for $150' },
+};
+
+export const LAWS: Record<LawId, { name: string; text: string }> = {
+  rentCap: { name: 'Rent cap', text: `No rent above $${RENT_CAP} for 3 rounds` },
+  rentUp: { name: 'Tourist levy', text: 'All rent +25% for 3 rounds' },
+  solidarity: { name: 'Solidarity tax', text: 'Pay 5% of your cash each time you pass Start, for 3 rounds' },
+  freeRail: { name: 'Free rail', text: 'Train rides cost nothing for 3 rounds' },
+  buildFreeze: { name: 'Building freeze', text: 'Nobody can build for 3 rounds' },
+  stimulus: { name: 'Stimulus', text: 'Everyone gets $150 right away' },
+};
+
+function openShop(s: GameState, kind: 'dutyfree' | 'bazaar') {
+  let items: { item: ShopItem; price: number }[];
+  if (kind === 'dutyfree') {
+    items = [
+      { item: 'powerUp', price: 100 },
+      { item: 'jailCard', price: 60 },
+      { item: 'insurance', price: 80 },
+    ];
+  } else {
+    const pool: { item: ShopItem; price: number }[] = [
+      { item: 'powerUp', price: 120 },
+      { item: 'jailCard', price: 80 },
+      { item: 'insurance', price: 100 },
+      { item: 'cash', price: 100 + Math.floor(random(s) * 5) * 10 },
+    ];
+    if (specialOn(s, 'pk.ups')) pool.push({ item: 'ups', price: 120 });
+    items = [pick(s, pool)];
+  }
+  s.turn!.shop = { kind, items, haggles: 0 };
+  s.turn!.stage = 'shop';
+}
+
+/** World Tour: Deported to a random airport. No salary, no detention. */
+function deport(s: GameState, ctx: Ctx, p: Player) {
+  const map = mapOf(s);
+  const to = pick(s, map.airports);
+  fx(s, 'deported', p.id, { tile: to });
+  log(s, ctx, `${p.name} was deported to ${map.tiles[to].name}`);
+  p.position = to;
+  land(s, ctx, p, {});
+}
+
+type NewsCard = {
+  text: string;
+  kind: 'boost' | 'payout' | 'quake' | 'deal' | 'rally' | 'crash' | 'tiles';
+  factor?: number;
+  rounds?: number;
+  amount?: number;
+  tiles?: TileKind;
+};
+
+const NEWS: NewsCard[] = [
+  { text: 'Tourism boom in {g}: rent x2 there for 2 rounds.', kind: 'boost', factor: 2, rounds: 2 },
+  { text: 'Recession in {g}: rent halved there for 2 rounds.', kind: 'boost', factor: 0.5, rounds: 2 },
+  { text: '{g} hosts a world summit: rent x3 there this round.', kind: 'boost', factor: 3, rounds: 1 },
+  { text: 'General strike in {g}: no rent there this round.', kind: 'boost', factor: 0, rounds: 1 },
+  { text: 'Oil discovered in {g}! Owners get $50 for every city they hold there.', kind: 'payout', amount: 50 },
+  { text: 'Earthquake in {g}: every city there loses a building.', kind: 'quake' },
+  { text: 'Trade deal between {g} and {g2}: every owner in both gets $100.', kind: 'deal', amount: 100 },
+  { text: 'Markets rally: everyone gets $50.', kind: 'rally', amount: 50 },
+  { text: 'Market crash: everyone pays 5% of their cash.', kind: 'crash', amount: 5 },
+  { text: 'Volcanic ash cloud: airports earn half this round.', kind: 'tiles', tiles: 'airport', factor: 0.5, rounds: 1 },
+  { text: 'Holiday rush: airport rent x2 for 2 rounds.', kind: 'tiles', tiles: 'airport', factor: 2, rounds: 2 },
+  { text: 'Shipping boom: port rent x2 for 2 rounds.', kind: 'tiles', tiles: 'port', factor: 2, rounds: 2 },
+];
+
+function drawNews(s: GameState, ctx: Ctx, p: Player) {
+  const map = mapOf(s);
+  const groups = Object.keys(map.groups);
+  const card = pick(s, NEWS);
+  const g = pick(s, groups);
+  const g2 = pick(s, groups.filter((x) => x !== g));
+  const text = card.text.replace('{g}', groupName(s, g)).replace('{g2}', groupName(s, g2));
+  s.lastCard = { deck: 'news', text, playerId: p.id, at: ctx.now };
+  fx(s, 'news', p.id);
+  log(s, ctx, `World News: ${text}`);
+  switch (card.kind) {
+    case 'boost':
+      s.special.boosts.push({ group: g, kind: null, factor: card.factor!, roundsLeft: card.rounds!, label: text });
+      return;
+    case 'tiles':
+      s.special.boosts.push({ group: null, kind: card.tiles!, factor: card.factor!, roundsLeft: card.rounds!, label: text });
+      return;
+    case 'payout':
+      for (const o of ownersIn(s, g)) {
+        const n = map.groups[g].tiles.filter((i) => s.properties[i]?.owner === o.id).length;
+        collect(s, ctx, o, card.amount! * n, 'from the oil find');
+      }
+      return;
+    case 'quake':
+      for (const i of map.groups[g].tiles) {
+        const own = s.properties[i];
+        if (own && own.houses > 0) own.houses = returnStock(s, own.houses);
+      }
+      return;
+    case 'deal':
+      for (const o of new Set([...ownersIn(s, g), ...ownersIn(s, g2)])) collect(s, ctx, o, card.amount!, 'from the trade deal');
+      return;
+    case 'rally':
+      for (const o of alive(s)) collect(s, ctx, o, card.amount!, 'from the rally');
+      return;
+    case 'crash':
+      for (const o of alive(s)) if (o.cash > 0) pay(s, ctx, o, null, Math.ceil((o.cash * card.amount!) / 100), 'in the crash', { toPot: true });
+      return;
+  }
+}
+
+function hostelNight(s: GameState, ctx: Ctx, p: Player) {
+  const r = random(s);
+  let text: string;
+  if (r < 0.4) {
+    const found = pick(s, ['cash', 'jailCard', 'powerUp'] as const);
+    if (found === 'jailCard') {
+      p.jailCards++;
+      text = `${p.name} found a lost passport (get out of Prison free).`;
+    } else if (found === 'powerUp' && p.powerUps.length < MAX_POWER_UPS) {
+      const kind = pick(s, Object.keys(POWER_UPS) as PowerUpKind[]);
+      p.powerUps.push(kind);
+      text = `${p.name} found a ${POWER_UPS[kind].name} under the bunk bed.`;
+    } else {
+      collect(s, ctx, p, 75, 'found at the hostel');
+      text = `${p.name} found $75 in a hostel locker.`;
+    }
+  } else if (r < 0.7) {
+    text = `${p.name} slept like a baby. Nothing happened.`;
+  } else if (p.powerUps.length) {
+    const lost = p.powerUps.splice(Math.floor(random(s) * p.powerUps.length), 1)[0];
+    text = `A roommate walked off with ${p.name}'s ${POWER_UPS[lost].name}.`;
+  } else {
+    pay(s, ctx, p, null, 50, 'to a hostel pickpocket', { toPot: true });
+    text = `A pickpocket took $50 from ${p.name}.`;
+  }
+  s.lastCard = { deck: 'hostel', text, playerId: p.id, at: ctx.now };
+  fx(s, 'chest', p.id);
+  log(s, ctx, text);
+}
+
+/** Landing on a map-only tile. */
+function mapTile(s: GameState, ctx: Ctx, p: Player, tile: Tile) {
+  const map = mapOf(s);
+  const sp = s.special;
+  const mine = s.turn?.playerId === p.id;
+  switch (tile.kind) {
+    case 'news':
+      drawNews(s, ctx, p);
+      return;
+    case 'customs': {
+      const countries = Object.values(map.groups).filter((g) => g.tiles.some((i) => s.properties[i]?.owner === p.id)).length;
+      if (!countries) return log(s, ctx, `${p.name} had nothing to declare at Customs`);
+      pay(s, ctx, p, null, CUSTOMS_DUTY * countries, `in import duty (${countries} countr${countries > 1 ? 'ies' : 'y'})`, { toPot: true });
+      fx(s, 'tax', p.id, { tile: tile.index, amount: CUSTOMS_DUTY * countries });
+      return;
+    }
+    case 'committee': {
+      if (sp.committee <= 0) return log(s, ctx, 'The committee pot is empty');
+      const pot = sp.committee;
+      sp.committee = 0;
+      collect(s, ctx, p, pot, 'from the committee', false);
+      fx(s, 'committee', p.id, { amount: pot });
+      return;
+    }
+    case 'bazaar':
+      if (mine) openShop(s, 'bazaar');
+      return;
+    case 'shaadi': {
+      let total = 0;
+      for (const o of alive(s)) {
+        if (o.id === p.id || o.cash <= 0) continue;
+        const gift = Math.min(SALAMI, o.cash);
+        pay(s, ctx, o, p, gift, 'as salami');
+        total += gift;
+      }
+      fx(s, 'shaadi', p.id, { amount: total });
+      log(s, ctx, `Shaadi! ${p.name} collects salami from everyone`);
+      return;
+    }
+    case 'plots':
+      if (mine) s.turn!.stage = 'plots';
+      return;
+    case 'parliament':
+      if (!mine) return;
+      if (sp.bill) return log(s, ctx, 'Parliament is already voting on a bill');
+      s.turn!.stage = 'parliament';
+      return;
+    case 'museum': {
+      const visits = (sp.museums[p.id] ??= []);
+      pay(s, ctx, p, null, MUSEUM_ENTRY, `for a ticket to ${tile.name}`);
+      sp.culture += MUSEUM_ENTRY;
+      if (!visits.includes(tile.index)) visits.push(tile.index);
+      if (map.museums.every((i) => visits.includes(i))) {
+        const prize = sp.culture + 100;
+        sp.culture = 0;
+        sp.museums[p.id] = [];
+        collect(s, ctx, p, prize, 'as the culture prize', false);
+        fx(s, 'culture', p.id, { amount: prize });
+        log(s, ctx, `${p.name} visited every museum and wins the culture prize!`);
+      }
+      return;
+    }
+    case 'festival': {
+      const g = pick(s, Object.keys(map.groups));
+      sp.boosts.push({ group: g, kind: null, factor: 3, roundsLeft: 1, label: `${groupName(s, g)} festival` });
+      if (mine && !p.inJail) s.turn!.extraRoll = true;
+      eventCard(s, ctx, `Festival season! ${groupName(s, g)} parties this round: rent x3 there. ${p.name} dances on and rolls again.`, 'festival');
+      return;
+    }
+    case 'hostel':
+      hostelNight(s, ctx, p);
       return;
     default:
       return;
@@ -1125,8 +1458,14 @@ function initialStock(s: GameState): GameState['stock'] {
 
 /** First-house-free rule: completing a set drops a house on its cheapest city, once per set. */
 function grantFreeHouses(s: GameState, ctx: Ctx, pid: string) {
-  if (!s.settings.firstHouseFree) return;
   const map = mapOf(s);
+  for (const [g, group] of Object.entries(map.groups)) {
+    if (s.special.sets[g] === pid || !ownsGroup(s, pid, g)) continue;
+    s.special.sets[g] = pid;
+    fx(s, 'fullSet', pid, { tile: group.tiles[group.tiles.length - 1] });
+    log(s, ctx, `${player(s, pid).name} owns all of ${group.name}!`);
+  }
+  if (!s.settings.firstHouseFree) return;
   for (const [g, group] of Object.entries(map.groups)) {
     if (s.freeHouses.includes(g) || !ownsGroup(s, pid, g)) continue;
     if (group.tiles.some((i) => s.properties[i].mortgaged)) continue;
@@ -1141,7 +1480,7 @@ function grantFreeHouses(s: GameState, ctx: Ctx, pid: string) {
 
 // ---------- turn flow ----------
 
-const PENDING_STAGES = new Set(['buy', 'sabotage', 'stocks', 'minigame', 'bus', 'teleport', 'travel', 'bribe']);
+const PENDING_STAGES = new Set(['buy', 'sabotage', 'stocks', 'minigame', 'bus', 'teleport', 'travel', 'bribe', 'shop', 'plots', 'parliament', 'trip']);
 
 /** Called once the current landing is fully resolved. */
 function finishStep(s: GameState, ctx: Ctx) {
@@ -1152,8 +1491,10 @@ function finishStep(s: GameState, ctx: Ctx) {
   }
   s.turn!.pendingTile = null;
   s.turn!.mini = null;
-  // a flight or train ride is offered once the landing itself is settled
-  if (s.turn!.travel && !p.inJail && mapOf(s).airports.includes(p.position)) {
+  s.turn!.shop = null;
+  // a flight, train or motorway ride is offered once the landing itself is settled
+  const ride = s.turn!.travel;
+  if (ride && !p.inJail && routesFrom(mapOf(s), p.position).some((r) => ride.to.includes(r.to))) {
     s.turn!.stage = 'travel';
     return;
   }
@@ -1242,6 +1583,7 @@ function newTurn(pid: string): GameState['turn'] {
     travel: null,
     bribe: null,
     attacked: false,
+    shop: null,
   };
 }
 
@@ -1263,6 +1605,11 @@ function advanceTurn(s: GameState, ctx: Ctx) {
     s.turnNo++;
     recordWorth(s);
     s.turn = newTurn(next.id);
+    // back from the Northern Areas
+    if (s.special.away[next.id]) {
+      delete s.special.away[next.id];
+      log(s, ctx, `${next.name} is back from the Northern Areas`);
+    }
     if (start + k >= order.length) newRound(s, ctx);
     return;
   }
@@ -1402,6 +1749,9 @@ function bankruptPlayer(s: GameState, ctx: Ctx, p: Player, allowRevive = true) {
   }
   if (mode === 'auction') s.auctionQueue.push(...owned.map((tile) => ({ tile, creditor: creditor?.id ?? null })));
   for (const holders of Object.values(s.shares)) delete holders[p.id];
+  buildingCash += (s.special.plots.owned[p.id] ?? 0) * s.special.plots.value;
+  delete s.special.plots.owned[p.id];
+  delete s.special.away[p.id];
   if (creditor) {
     const cash = Math.max(0, p.cash) + buildingCash;
     if (cash > 0) creditor.cash += cash;
@@ -1459,23 +1809,25 @@ export const SPECIALS: SpecialDef[] = [
   { id: 'world.visa', map: 'world', icon: '🛂', name: 'Visa fee', desc: "Landing in a country where you own no city costs $20." },
   { id: 'world.lockdown', map: 'world', icon: '😷', name: 'Lockdown', desc: 'Every 6 rounds one side of the board locks for a round; landing there skips your next turn.' },
   { id: 'world.aid', map: 'world', icon: '🇺🇳', name: 'UN aid', desc: 'Every 5 rounds the poorest player gets $150.' },
-  { id: 'world.flights', map: 'world', icon: '✈️', name: 'Connecting flights', desc: 'After landing on an airport, pay $100 to fly to any other airport.' },
+  { id: 'world.flights', map: 'world', icon: '✈️', name: 'Flight network', desc: "After landing on an airport, fly one of its routes for $60. The ticket goes to the destination airport's owner." },
   { id: 'world.wonders', map: 'world', icon: '🗽', name: 'Tourist wonders', desc: "Owner of a country's priciest city earns $25 whenever anyone lands in that country." },
+  { id: 'world.timezones', map: 'world', icon: '🌙', name: 'Time zones', desc: 'One side of the board is always at night: rent there is halved. Night moves one side each round.' },
+  { id: 'world.continents', map: 'world', icon: '🌍', name: 'Continent bonus', desc: 'Own a city in every country of a continent (2+ countries on the board): +$30 per country each lap.' },
 
-  { id: 'pk.loadshedding', map: 'pakistan', icon: '🔌', name: 'Load-shedding', desc: 'Every 2 rounds a region goes dark for a round: no rent there. Utility owners get $25 per dark city.' },
+  { id: 'pk.loadshedding', map: 'pakistan', icon: '🔌', name: 'Load-shedding', desc: 'Every 2 rounds a region goes dark for a round: no rent there.' },
   { id: 'pk.ups', map: 'pakistan', icon: '🔋', name: 'UPS', desc: '$150 protects all your cities from blackouts for 5 turns.' },
-  { id: 'pk.monsoon', map: 'pakistan', icon: '🌧️', name: 'Monsoon', desc: 'Every 4 rounds Sindh, Karachi and Seafront cities may each lose a building (1 in 3). Tarbela Dam owner gets $100.' },
-  { id: 'pk.cricket', map: 'pakistan', icon: '🏏', name: 'Cricket match day', desc: 'Every 3 rounds Lahore or Karachi hosts a match: rent x2 there for a round.' },
+  { id: 'pk.monsoon', map: 'pakistan', icon: '🌧️', name: 'Monsoon', desc: 'Every 4 rounds Sindh, Karachi and Seafront cities may each lose a building (1 in 3).' },
+  { id: 'pk.cricket', map: 'pakistan', icon: '🏏', name: 'Cricket match day', desc: 'Every 3 rounds Lahore or Karachi hosts a match: rent x2 there, and stadiums charge $120 instead of $15.' },
   { id: 'pk.eidi', map: 'pakistan', icon: '🌙', name: 'Eidi', desc: 'On rounds 5 and 12 every player gets $100 Eidi.' },
-  { id: 'pk.shaadi', map: 'pakistan', icon: '💍', name: 'Shaadi season', desc: 'Every 5 rounds a random player hosts a wedding; everyone pays them $50 salami.' },
-  { id: 'pk.bribe', map: 'pakistan', icon: '☕', name: 'Chai-pani', desc: 'On tax or Go to Prison, offer a $50 bribe: 70% you skip it, 30% caught and pay double (or Prison anyway).' },
+  { id: 'pk.tolls', map: 'pakistan', icon: '🛣️', name: 'Drive-past tolls', desc: 'Toll plaza owners charge $20 ($40 with both) to every car that drives past, not only to cars that stop.' },
+  { id: 'pk.bribe', map: 'pakistan', icon: '☕', name: 'Chai-pani', desc: 'On tax or at the Naka, offer a $50 bribe: 70% you skip it, 30% caught and pay double (or the Thana anyway).' },
   { id: 'pk.traffic', map: 'pakistan', icon: '🚗', name: 'Traffic jam', desc: 'Landing in Karachi makes your next roll move 2 fewer tiles.' },
   { id: 'pk.petrol', map: 'pakistan', icon: '⛽', name: 'Petrol price', desc: 'Each lap costs fuel: $30, rising $10 every 5 rounds.' },
   { id: 'pk.cpec', map: 'pakistan', icon: '🛣️', name: 'CPEC corridor', desc: 'Own Gwadar + an airport: +$50 each lap. Also own Quetta: +$100.' },
 
-  { id: 'eu.rail', map: 'europe', icon: '🚆', name: 'Rail pass', desc: 'After landing on a station, pay $50 to ride to any other station.' },
+  { id: 'eu.rail', map: 'europe', icon: '🚆', name: 'Rail lines', desc: "After landing on a station, pay $50 to ride its line to the station at the other end. The fare goes to that station's owner." },
   { id: 'eu.strike', map: 'europe', icon: '🪧', name: 'Train strike', desc: 'Every 4 rounds stations close for a round: no rent, no rides.' },
-  { id: 'eu.seasons', map: 'europe', icon: '☀️', name: 'Seasons', desc: 'Every 2 rounds summer and winter swap. Summer: Portugal, Greece, Spain, Italy x2. Winter: Norway, Sweden, Switzerland, Poland x2.' },
+  { id: 'eu.seasons', map: 'europe', icon: '☀️', name: 'Seasons', desc: 'Every 2 rounds summer and winter swap. Summer: Portugal, Greece, Spain, Italy x2. Winter: Sweden and Poland x2, but the Alps close: Switzerland and Norway rent halved, no building.' },
   { id: 'eu.eurovision', map: 'europe', icon: '🎤', name: 'Eurovision', desc: 'Every 6 rounds everyone votes for a country; its owners win $200.' },
   { id: 'eu.exit', map: 'europe', icon: '🗳️', name: 'Exit vote', desc: "In round 8 a country leaves the union: its cities can't be traded, but rent there is +50%." },
   { id: 'eu.carbon', map: 'europe', icon: '🌱', name: 'Carbon tax', desc: 'Each lap pay $20 per hotel and $40 per skyscraper or landmark.' },
@@ -1483,6 +1835,8 @@ export const SPECIALS: SpecialDef[] = [
   { id: 'eu.heritage', map: 'europe', icon: '🏛️', name: 'Heritage capitals', desc: 'Capitals hold at most 2 houses, but their base rent is x3.' },
   { id: 'eu.schengen', map: 'europe', icon: '🛤️', name: 'Schengen hop', desc: 'Once per lap, before rolling, add +1 or +2 to your move.' },
   { id: 'eu.ucl', map: 'europe', icon: '⚽', name: 'Champions League', desc: 'Every 7 rounds two countries play a final. Bet $50-$200; winners double. The winning country’s owners get $100.' },
+  { id: 'eu.currency', map: 'europe', icon: '💶', name: 'Currencies', desc: 'Pound, franc, krona, krone and zloty countries drift ±12% against the euro each round (x0.7 to x1.4). Euro countries stay put.' },
+  { id: 'eu.borders', map: 'europe', icon: '🛂', name: 'EU borders', desc: `Driving into a non-EU country (UK, Switzerland, Norway) where you own nothing costs a $${BORDER_FEE} border fee.` },
 ];
 
 const SPECIAL_PREFIX: Record<string, string> = { world: 'world.', pakistan: 'pk.', europe: 'eu.' };
@@ -1512,13 +1866,30 @@ export function blankSpecial(): SpecialState {
     schengen: {},
     vote: null,
     match: null,
+    boosts: [],
+    night: 0,
+    committee: 0,
+    plots: { value: 100, owned: {} },
+    away: {},
+    sifarish: {},
+    bill: null,
+    law: null,
+    museums: {},
+    culture: 0,
+    sets: {},
   };
 }
 
 const SEASON_GROUPS: Record<'summer' | 'winter', string[]> = {
   summer: ['brown', 'lightblue', 'orange', 'violet'],
-  winter: ['green', 'yellow', 'red', 'teal'],
+  winter: ['yellow', 'teal'],
 };
+/** Alpine countries that close in winter. */
+const ALPS = ['red', 'green'];
+
+function alpsClosed(s: Pick<GameState, 'settings' | 'special'>, group: string | undefined): boolean {
+  return !!group && specialOn(s, 'eu.seasons') && s.special.season === 'winter' && ALPS.includes(group);
+}
 const MONSOON_GROUPS = ['pink', 'green', 'silver'];
 const CRICKET_GROUPS = ['yellow', 'green'];
 export const VOTE_MS = 15_000;
@@ -1545,6 +1916,13 @@ export function specialRentFactor(
   const tile = tileOf(s, index);
   const g = tile.group;
   let f = 1;
+  for (const b of sp.boosts ?? []) if ((b.group && b.group === g) || (b.kind && b.kind === tile.kind)) f *= b.factor;
+  const owner = s.properties[index]?.owner;
+  if (owner && sp.away?.[owner]) f *= 2;
+  if (sp.law?.id === 'rentUp') f *= 1.25;
+  if (specialOn(s, 'world.timezones') && sideOf(s, index) === sp.night) f *= 0.5;
+  if (specialOn(s, 'eu.currency') && g && mapOf(s).groups[g]?.currency) f *= sp.rates[g] ?? 1;
+  if (alpsClosed(s, g)) f *= 0.5;
   if (specialOn(s, 'world.war') && sp.war && g && (g === sp.war.a || g === sp.war.b)) f *= 1.5;
   if (specialOn(s, 'world.fx') && g) f *= sp.rates[g] ?? 1;
   if (specialOn(s, 'world.embargo') && sp.embargo && g === sp.embargo.group) f *= 0.5;
@@ -1597,7 +1975,30 @@ function specialRound(s: GameState, ctx: Ctx) {
   const groups = Object.keys(map.groups);
   const tick = <T extends { roundsLeft: number }>(x: T | null): T | null => (x && --x.roundsLeft > 0 ? x : null);
 
+  // map-wide timers that aren't switchable
+  for (const b of sp.boosts) b.roundsLeft--;
+  sp.boosts = sp.boosts.filter((b) => b.roundsLeft > 0);
+  if (sp.law && --sp.law.roundsLeft <= 0) {
+    log(s, ctx, `The ${LAWS[sp.law.id].name} law expired`);
+    sp.law = null;
+  }
+  if (map.tiles.some((t) => t.kind === 'committee')) {
+    for (const p of alive(s)) {
+      const due = Math.min(COMMITTEE_DUE, Math.max(0, p.cash));
+      if (due > 0) {
+        p.cash -= due;
+        sp.committee += due;
+      }
+    }
+    log(s, ctx, `Everyone paid into the committee. The pot is now $${sp.committee}`);
+  }
+  if (map.tiles.some((t) => t.kind === 'plots')) {
+    const v = sp.plots.value * (0.8 + random(s) * 0.5);
+    sp.plots.value = Math.round(Math.min(500, Math.max(40, v)) / 5) * 5;
+  }
+
   // ----- World -----
+  if (specialOn(s, 'world.timezones')) sp.night = (sp.night + 1) % 4;
   if (specialOn(s, 'world.fx')) {
     for (const g of groups) {
       const next = (sp.rates[g] ?? 1) + (random(s) - 0.5) * 0.2;
@@ -1669,12 +2070,6 @@ function specialRound(s: GameState, ctx: Ctx) {
     if (r % 2 === 0) {
       const g = pick(s, groups);
       sp.blackout = { group: g, roundsLeft: 1 };
-      const dark = map.groups[g].tiles.length;
-      for (const u of map.utilities) {
-        const o = s.properties[u];
-        const owner = o && s.players.find((p) => p.id === o.owner && !p.bankrupt);
-        if (owner) collect(s, ctx, owner, 25 * dark, 'from generator sales');
-      }
       eventCard(s, ctx, `Load-shedding in ${groupName(s, g)}: no rent there this round.`, 'blackout');
     }
   }
@@ -1689,9 +2084,6 @@ function specialRound(s: GameState, ctx: Ctx) {
         }
       }
     }
-    const dam = s.properties[map.utilities[1]];
-    const damOwner = dam && s.players.find((p) => p.id === dam.owner && !p.bankrupt);
-    if (damOwner) collect(s, ctx, damOwner, 100, 'from Tarbela Dam');
     eventCard(s, ctx, `Monsoon! ${hit ? `${hit} building${hit > 1 ? 's' : ''} washed away in the south.` : 'The buildings held up.'}`);
   }
   if (specialOn(s, 'pk.cricket')) {
@@ -1705,11 +2097,6 @@ function specialRound(s: GameState, ctx: Ctx) {
   if (specialOn(s, 'pk.eidi') && (r === 5 || r === 12)) {
     for (const p of alive(s)) collect(s, ctx, p, 100, 'as Eidi');
     eventCard(s, ctx, 'Eid Mubarak! Everyone gets $100 Eidi.');
-  }
-  if (specialOn(s, 'pk.shaadi') && r % 5 === 0) {
-    const host = pick(s, alive(s));
-    for (const p of alive(s)) if (p.id !== host.id) pay(s, ctx, p, host, 50, 'as salami');
-    eventCard(s, ctx, `Shaadi season! ${host.name} is getting married and everyone pays $50 salami.`);
   }
 
   // ----- Euro Trip -----
@@ -1727,8 +2114,17 @@ function specialRound(s: GameState, ctx: Ctx) {
       eventCard(
         s,
         ctx,
-        season === 'summer' ? 'Summer! Portugal, Greece, Spain and Italy pay double.' : 'Winter! Norway, Sweden, Switzerland and Poland pay double.',
+        season === 'summer'
+          ? 'Summer! Portugal, Greece, Spain and Italy pay double.'
+          : 'Winter! Sweden and Poland pay double, but the Alps close: Switzerland and Norway rent halved, no building.',
       );
+    }
+  }
+  if (specialOn(s, 'eu.currency')) {
+    for (const g of groups) {
+      if (!map.groups[g].currency) continue;
+      const next = (sp.rates[g] ?? 1) + (random(s) - 0.5) * 0.24;
+      sp.rates[g] = Math.round(Math.min(1.4, Math.max(0.7, next)) * 100) / 100;
     }
   }
   if (specialOn(s, 'eu.exit') && r === 8 && !sp.exited) {
@@ -1751,6 +2147,18 @@ function specialRound(s: GameState, ctx: Ctx) {
 function specialTick(s: GameState, ctx: Ctx): boolean {
   const sp = s.special;
   let changed = false;
+  if (sp.bill && ctx.now >= sp.bill.endsAt) {
+    const { law, votes } = sp.bill;
+    const yes = Object.values(votes).filter(Boolean).length;
+    const no = Object.values(votes).length - yes;
+    sp.bill = null;
+    if (yes > no) {
+      if (law === 'stimulus') for (const p of alive(s)) collect(s, ctx, p, 150, 'from the stimulus law');
+      else sp.law = { id: law, roundsLeft: 3 };
+      eventCard(s, ctx, `Parliament passed the ${LAWS[law].name} law ${yes}-${no}: ${LAWS[law].text}.`, 'law');
+    } else eventCard(s, ctx, `Parliament voted down the ${LAWS[law].name} law ${yes}-${no}.`, 'veto');
+    changed = true;
+  }
   if (sp.vote && ctx.now >= sp.vote.endsAt) {
     const tally: Record<string, number> = {};
     for (const g of Object.values(sp.vote.votes)) tally[g] = (tally[g] ?? 0) + 1;
@@ -1807,14 +2215,16 @@ function specialLanding(s: GameState, ctx: Ctx, p: Player, tile: Tile) {
     sp.skip[p.id] = (sp.skip[p.id] ?? 0) + 1;
     log(s, ctx, `${p.name} landed in lockdown and will miss a turn`);
   }
-  // offer a connecting flight / train ride once this landing is resolved
-  if (tile.kind === 'airport' && s.turn?.playerId === p.id && !p.inJail) {
-    if (specialOn(s, 'world.flights')) s.turn.travel = { cost: 100 };
-    if (specialOn(s, 'eu.rail') && !(specialOn(s, 'eu.strike') && sp.strike > 0)) {
+  // offer a flight, train or motorway ride once this landing is resolved
+  const to = routesFrom(mapOf(s), tile.index).map((r) => r.to);
+  if (to.length && s.turn?.playerId === p.id && !p.inJail) {
+    if (tile.kind === 'airport' && specialOn(s, 'world.flights')) s.turn.travel = { cost: 60, to, via: 'flight' };
+    if (tile.kind === 'airport' && specialOn(s, 'eu.rail') && !(specialOn(s, 'eu.strike') && sp.strike > 0)) {
       const d = s.turn.dice;
-      const free = specialOn(s, 'eu.nighttrain') && d && d[0] === d[1];
-      s.turn.travel = { cost: free ? 0 : 50 };
+      const free = (specialOn(s, 'eu.nighttrain') && d && d[0] === d[1]) || sp.law?.id === 'freeRail';
+      s.turn.travel = { cost: free ? 0 : 50, to, via: 'rail' };
     }
+    if (tile.kind === 'toll') s.turn.travel = { cost: 30, to, via: 'road' };
   }
 }
 
@@ -1831,6 +2241,15 @@ function specialLap(s: GameState, ctx: Ctx, p: Player) {
     if (gwadar !== undefined && s.properties[gwadar]?.owner === p.id && ownsAirport) {
       const both = quetta !== undefined && s.properties[quetta]?.owner === p.id;
       collect(s, ctx, p, both ? 100 : 50, 'from the CPEC corridor');
+    }
+  }
+  if (specialOn(s, 'world.continents')) {
+    const regions = new Map<string, string[]>();
+    for (const g of Object.values(map.groups)) if (g.region) regions.set(g.region, [...(regions.get(g.region) ?? []), g.id]);
+    for (const [region, gs] of regions) {
+      if (gs.length < 2) continue;
+      if (gs.every((g) => map.groups[g].tiles.some((i) => s.properties[i]?.owner === p.id)))
+        collect(s, ctx, p, 30 * gs.length, `as the ${region} continent bonus`);
     }
   }
   if (specialOn(s, 'eu.carbon')) {
@@ -1911,6 +2330,7 @@ function autoStep(s: GameState, ctx: Ctx) {
     else if (stage === 'bus') run(s, p.id, { type: 'busChoice', pick: 2 }, ctx);
     else if (stage === 'teleport') run(s, p.id, { type: 'teleportTo', tile: (p.position + 7) % s.size }, ctx);
     else if (stage === 'bribe') run(s, p.id, { type: 'bribe', offer: false }, ctx);
+    else if (stage === 'trip') run(s, p.id, { type: 'trip', go: false }, ctx);
     else run(s, p.id, { type: 'skipSpecial' }, ctx);
   } catch {
     bankruptPlayer(s, ctx, p);
@@ -2061,7 +2481,7 @@ function checkCanOffer(s: GameState, me: Player) {
 
 function nextUnowned(s: GameState, from: number): number {
   const map = mapOf(s);
-  const buyable = (i: number) => ['property', 'airport', 'utility'].includes(map.tiles[i].kind);
+  const buyable = (i: number) => isBuyable(map.tiles[i].kind);
   for (let k = 1; k <= s.size; k++) {
     const i = (from + k) % s.size;
     if (buyable(i) && !s.properties[i]) return i;
@@ -2399,6 +2819,8 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
       if (setTiles.some((o) => o.mortgaged)) fail('Unmortgage the whole set first');
       if (own.houses >= maxBuildings(s)) fail('Nothing more to build here');
       if (specialOn(s, 'world.embargo') && s.special.embargo?.group === tile.group) fail(`${group.name} is under embargo`);
+      if (s.special.law?.id === 'buildFreeze') fail('Parliament passed a building freeze');
+      if (alpsClosed(s, tile.group)) fail(`${group.name} is snowed in for the winter`);
       const capital = capitalOf(s, tile.group!);
       const heritage = specialOn(s, 'eu.heritage');
       if (heritage && capital === action.tile && own.houses >= 2) fail('Heritage capitals hold at most 2 houses');
@@ -2771,8 +3193,8 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
 
     case 'skipSpecial': {
       const p = requireTurn(s, playerId);
-      if (!['sabotage', 'stocks', 'minigame', 'travel'].includes(s.turn!.stage)) fail('Nothing to skip');
-      if (s.turn!.stage !== 'stocks' && s.turn!.stage !== 'travel') log(s, ctx, `${p.name} passed`);
+      if (!['sabotage', 'stocks', 'minigame', 'travel', 'shop', 'plots', 'parliament'].includes(s.turn!.stage)) fail('Nothing to skip');
+      if (['sabotage', 'minigame', 'parliament'].includes(s.turn!.stage)) log(s, ctx, `${p.name} passed`);
       s.turn!.travel = null;
       finishStep(s, ctx);
       break;
@@ -2795,13 +3217,15 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
       const p = requireTurn(s, playerId, 'travel');
       const offer = s.turn!.travel;
       if (!offer) fail('No ride on offer');
-      const map = mapOf(s);
       const to = int(action.tile);
-      if (!map.airports.includes(to) || to === p.position) fail('Pick another airport or station');
-      if (p.cash < offer.cost) fail('Not enough cash');
+      if (!offer.to.includes(to)) fail('That route goes somewhere else');
+      const dest = s.properties[to];
+      const destOwner = dest && dest.owner !== p.id && !dest.mortgaged ? s.players.find((x) => x.id === dest.owner && !x.bankrupt) ?? null : null;
+      const fare = dest?.owner === p.id ? 0 : offer.cost;
+      if (p.cash < fare) fail('Not enough cash');
       s.turn!.travel = null;
-      if (offer.cost) pay(s, ctx, p, null, offer.cost, `to travel to ${tileOf(s, to).name}`);
-      fx(s, 'train', p.id);
+      if (fare) pay(s, ctx, p, destOwner, fare, `to travel to ${tileOf(s, to).name}`);
+      fx(s, 'train', p.id, { tile: to });
       log(s, ctx, `${p.name} travelled to ${tileOf(s, to).name}`);
       s.turn!.stage = 'roll';
       moveTo(s, ctx, p, to);
@@ -2814,10 +3238,18 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
     case 'bribe': {
       const p = requireTurn(s, playerId, 'bribe');
       const b = s.turn!.bribe!;
+      if (action.offer && b.kind === 'naka' && !specialOn(s, 'pk.bribe')) fail('Chai-pani is off in this room');
+      if (action.fine && b.kind !== 'naka') fail('No fine to pay here');
+      if (action.fine && p.cash < NAKA_FINE) fail('Not enough cash');
       s.turn!.bribe = null;
       const tile = tileOf(s, b.tile);
+      if (action.fine) {
+        pay(s, ctx, p, null, NAKA_FINE, `as a fine at the ${tile.name}`, { toPot: true });
+        finishStep(s, ctx);
+        break;
+      }
       const due = () => {
-        if (b.kind === 'jail') sendToJail(s, ctx, p);
+        if (b.kind === 'jail' || b.kind === 'naka') sendToJail(s, ctx, p);
         else {
           const tax = taxFor(s, p, tile);
           if (tax > 0) pay(s, ctx, p, null, tax, `for ${tile.name}`, { toPot: true });
@@ -2830,7 +3262,7 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
         if (random(s) < 0.7) log(s, ctx, `The bribe worked: ${p.name} walks away`);
         else {
           log(s, ctx, `${p.name} got caught bribing!`);
-          if (b.kind === 'jail') sendToJail(s, ctx, p);
+          if (b.kind === 'jail' || b.kind === 'naka') sendToJail(s, ctx, p);
           else pay(s, ctx, p, null, taxFor(s, p, tile) * 2, `as a fine for bribery`, { toPot: true });
         }
       }
@@ -2902,6 +3334,124 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
       if (!v.groups.includes(action.group)) fail('Unknown country');
       v.votes[p.id] = action.group;
       fx(s, 'bid', p.id);
+      break;
+    }
+
+    case 'shopBuy': {
+      const p = requireTurn(s, playerId, 'shop');
+      const shop = s.turn!.shop!;
+      const offer = shop.items[int(action.index)];
+      if (!offer) fail('Nothing like that for sale');
+      if (p.cash < offer.price) fail('Not enough cash');
+      if (offer.item === 'powerUp' && p.powerUps.length >= MAX_POWER_UPS) fail(`You can hold ${MAX_POWER_UPS} power-ups`);
+      pay(s, ctx, p, null, offer.price, `for ${SHOP_ITEMS[offer.item].name}`, { spent: true });
+      if (offer.item === 'powerUp') {
+        const kind = pick(s, Object.keys(POWER_UPS) as PowerUpKind[]);
+        p.powerUps.push(kind);
+        log(s, ctx, `${p.name} got a ${POWER_UPS[kind].name}`);
+      } else if (offer.item === 'jailCard') p.jailCards++;
+      else if (offer.item === 'insurance') p.insuredTurns = Math.max(p.insuredTurns, INSURANCE_TURNS);
+      else if (offer.item === 'ups') s.special.ups[p.id] = 5;
+      else if (offer.item === 'cash') collect(s, ctx, p, 150, 'selling the gold bangle');
+      fx(s, 'shop', p.id);
+      finishStep(s, ctx);
+      break;
+    }
+
+    case 'haggle': {
+      const p = requireTurn(s, playerId, 'shop');
+      const shop = s.turn!.shop!;
+      if (shop.kind !== 'bazaar') fail('Duty-Free prices are fixed');
+      if (shop.haggles >= 2) fail('The shopkeeper won’t budge any more');
+      shop.haggles++;
+      const d = d6(s);
+      const item = shop.items[0];
+      if (d === 1) {
+        log(s, ctx, `${p.name} haggled too hard (rolled 1): the shopkeeper waved them off`);
+        finishStep(s, ctx);
+        break;
+      }
+      const before = item.price;
+      item.price = Math.max(10, Math.round((d === 2 ? before * 1.1 : before * (1 - d * 0.05)) / 5) * 5);
+      log(s, ctx, `${p.name} haggled (rolled ${d}): $${before} → $${item.price}`);
+      fx(s, 'dice', p.id);
+      break;
+    }
+
+    case 'buyPlot': {
+      const p = requireTurn(s, playerId, 'plots');
+      const plots = s.special.plots;
+      if ((plots.owned[p.id] ?? 0) >= MAX_PLOTS) fail(`You can hold ${MAX_PLOTS} plot files`);
+      if (p.cash < plots.value) fail('Not enough cash');
+      pay(s, ctx, p, null, plots.value, 'for a plot file', { spent: true });
+      plots.owned[p.id] = (plots.owned[p.id] ?? 0) + 1;
+      fx(s, 'stock', p.id);
+      break;
+    }
+
+    case 'sellPlot': {
+      const p = requireTurn(s, playerId);
+      if (s.auction) fail('Wait for the auction to finish');
+      const plots = s.special.plots;
+      if (!(plots.owned[p.id] > 0)) fail('You have no plot files');
+      plots.owned[p.id]--;
+      collect(s, ctx, p, plots.value, 'selling a plot file');
+      fx(s, 'stock', p.id);
+      break;
+    }
+
+    case 'propose': {
+      const p = requireTurn(s, playerId, 'parliament');
+      if (!LAWS[action.law]) fail('No such law');
+      s.special.bill = { law: action.law, by: p.id, endsAt: now + VOTE_MS, votes: { [p.id]: true } };
+      eventCard(s, ctx, `${p.name} proposes the ${LAWS[action.law].name} law: ${LAWS[action.law].text}. Everyone has 15 seconds to vote.`, 'law');
+      finishStep(s, ctx);
+      break;
+    }
+
+    case 'billVote': {
+      const p = requirePlaying(s, playerId);
+      const bill = s.special.bill;
+      if (!bill || now >= bill.endsAt) fail('No vote open');
+      bill.votes[p.id] = !!action.yes;
+      fx(s, 'bid', p.id);
+      break;
+    }
+
+    case 'trip': {
+      const p = requireTurn(s, playerId, 'trip');
+      if (action.go) {
+        s.special.skip[p.id] = (s.special.skip[p.id] ?? 0) + 1;
+        s.special.away[p.id] = true;
+        s.turn!.extraRoll = false;
+        log(s, ctx, `${p.name} heads up north: skips a turn, but their cities earn double while they're away`);
+        fx(s, 'festival', p.id);
+      }
+      finishStep(s, ctx);
+      break;
+    }
+
+    case 'sifarish': {
+      const p = requireTurn(s, playerId, 'roll');
+      if (s.settings.mapId !== 'pakistan') fail('No one to call here');
+      if (!p.inJail) fail("You're not in the Thana");
+      if (s.special.sifarish[p.id]) fail('You already called in a favour this time');
+      s.special.sifarish[p.id] = true;
+      if (random(s) < 0.5) {
+        p.inJail = false;
+        p.jailTurns = 0;
+        fx(s, 'jailFree', p.id);
+        log(s, ctx, `${p.name}'s uncle made a phone call. Released!`);
+      } else log(s, ctx, `${p.name}'s sifarish didn't work this time`);
+      break;
+    }
+
+    case 'setPiece': {
+      const p = player(s, playerId);
+      const piece = String(action.piece);
+      if (!(PIECES as readonly string[]).includes(piece)) fail('Unknown piece');
+      if (s.players.some((x) => x.id !== p.id && x.piece === piece && !x.bankrupt)) fail('Someone already has that piece');
+      p.piece = piece;
       break;
     }
 

@@ -22,19 +22,27 @@ const side = (p: Partial<TradeSide> = {}): TradeSide => ({ cash: 0, tiles: [], j
 
 describe('board sizes', () => {
   it('builds every map at every size with the right city counts', () => {
-    const cities = { 40: 22, 48: 28, 56: 36 };
+    const cities: Record<string, Record<number, number>> = {
+      classic: { 40: 22, 48: 28, 56: 36 },
+      world: { 40: 22, 48: 28, 56: 36 },
+      pakistan: { 40: 24, 48: 30, 56: 36 },
+      europe: { 40: 22, 48: 28, 56: 36 },
+    };
+    const transport: Record<string, [number, number]> = { classic: [4, 2], world: [6, 0], pakistan: [2, 0], europe: [6, 0] };
     for (const id of Object.keys(MAP_DEFS)) {
       for (const size of BOARD_SIZES) {
         const m = getMap(id, size);
         expect(m.tiles).toHaveLength(size);
-        expect(m.tiles.filter((t) => t.kind === 'property')).toHaveLength(cities[size]);
-        expect(m.airports).toHaveLength(4);
-        expect(m.utilities).toHaveLength(2);
+        expect(m.tiles.filter((t) => t.kind === 'property')).toHaveLength(cities[id][size]);
+        expect([m.airports.length, m.utilities.length]).toEqual(transport[id]);
         expect(m.tiles[m.jail].kind).toBe('jail');
         expect(m.tiles[m.goToJail].kind).toBe('gotojail');
-        expect(m.tiles[m.specials.sabotage].kind).toBe('chance');
-        expect(m.tiles[m.specials.stocks].kind).toBe('chest');
-        expect(m.tiles[m.specials.arcade].kind).toBe('chest');
+        // the general special squares sit on three different action tiles
+        const spots = [m.specials.sabotage, m.specials.stocks, m.specials.arcade];
+        expect(new Set(spots).size).toBe(3);
+        for (const i of spots) expect(['chance', 'chest', 'news', 'customs', 'bazaar', 'shaadi', 'hostel', 'festival']).toContain(m.tiles[i].kind);
+        // every set has two or three cities
+        for (const g of Object.values(m.groups)) expect([2, 3]).toContain(g.tiles.length);
         // names unique so players can tell cities apart
         const names = m.tiles.filter((t) => t.kind === 'property').map((t) => t.name);
         expect(new Set(names).size).toBe(names.length);
@@ -53,8 +61,8 @@ describe('board sizes', () => {
   });
 
   it('standard board keeps the classic layout', () => {
-    const m = getMap('world', 40);
-    expect(m.tiles[1].name).toBe('Cairo');
+    const m = getMap('classic', 40);
+    expect(m.tiles[1].name).toBe('Salvador');
     expect(m.tiles[39].rents).toEqual([50, 200, 600, 1400, 1700, 2000]);
     expect(m.specials).toEqual({ arcade: 17, sabotage: 22, stocks: 33 });
   });
@@ -67,12 +75,12 @@ describe('board sizes', () => {
   });
 
   it('cards name cities from the current map', () => {
-    let s = game({ mapId: 'pakistan' });
+    let s = game({ mapId: 'classic' });
     const me = cur(s);
     // force the "Fly to red-last" card to the top of the Surprise deck
     s.decks.chance = [1, ...s.decks.chance.filter((i) => i !== 1)];
     s = act(s, me, { type: 'roll' }, [3, 4]); // tile 7 is Surprise
-    expect(s.lastCard?.text).toContain('Rawalpindi');
+    expect(s.lastCard?.text).toContain('Shanghai');
   });
 });
 

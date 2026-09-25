@@ -59,7 +59,8 @@ function withAck(fn: (ack: (res: Ack) => void) => void): Promise<Ack> {
   });
 }
 
-export const createRoom = (name: string, color: string) => withAck((ack) => socket.emit('room:create', { name, color }, ack));
+export const createRoom = (name: string, color: string, piece?: string) =>
+  withAck((ack) => socket.emit('room:create', { name, color, piece }, ack));
 export const joinRoom = (input: JoinInput) => withAck((ack) => socket.emit('room:join', input, ack));
 export const leaveRoom = () => socket.emit('room:leave');
 
@@ -111,6 +112,7 @@ export function forgetSeat(code: string) {
 export interface Profile {
   name: string;
   color: string;
+  piece?: string;
 }
 export function loadProfile(): Profile | null {
   try {

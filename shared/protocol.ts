@@ -7,6 +7,7 @@ export interface JoinInput {
   token?: string;
   name?: string;
   color?: string;
+  piece?: string;
   /** watch without taking a seat */
   spectate?: boolean;
 }
@@ -55,7 +56,7 @@ export interface RoomMeta {
 }
 
 export interface ClientToServer {
-  'room:create': (input: { name: string; color: string }, ack: (res: Ack) => void) => void;
+  'room:create': (input: { name: string; color: string; piece?: string }, ack: (res: Ack) => void) => void;
   'room:join': (input: JoinInput, ack: (res: Ack) => void) => void;
   'room:leave': () => void;
   'game:action': (action: Action, ack: (res: Ack) => void) => void;

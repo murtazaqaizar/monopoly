@@ -1,5 +1,24 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Building2, Coins, Gavel, Hammer, Hotel, House, Landmark, PartyPopper, Siren, Skull, Sparkles, Trophy } from 'lucide-react';
+import {
+  Building2,
+  Coins,
+  Crown,
+  Gavel,
+  Hammer,
+  Handshake,
+  HeartHandshake,
+  Hotel,
+  House,
+  Landmark,
+  Newspaper,
+  Palette,
+  PartyPopper,
+  PlaneTakeoff,
+  Siren,
+  Skull,
+  Sparkles,
+  Trophy,
+} from 'lucide-react';
 import { mapOf } from '../../shared/engine';
 import type { Fx, PublicState } from '../../shared/types';
 import { cellOf, centerPct } from './Board';
@@ -29,6 +48,12 @@ interface Burst {
   kind: 'coins' | 'confetti' | 'sparks';
   color?: string;
 }
+/** A stream of coins flying from one spot to another (rent paid to an owner). */
+interface Flow {
+  id: number;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+}
 
 /** Tile index to its centre on the board, in %. */
 function spot(state: PublicState, tile: number) {
@@ -50,6 +75,7 @@ export function useFx(state: PublicState, me: string | null) {
   const [floats, setFloats] = useState<Float[]>([]);
   const [bursts, setBursts] = useState<Burst[]>([]);
   const [flashes, setFlashes] = useState<TileFlashes>({});
+  const [flows, setFlows] = useState<Flow[]>([]);
   const timers = useRef<number[]>([]);
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -88,6 +114,11 @@ export function useFx(state: PublicState, me: string | null) {
       const at = tile === null ? { x: 50, y: 50 } : spot(state, tile);
       setBursts((b) => [...b, { id, ...at, kind, color }]);
       later(1400, () => setBursts((b) => b.filter((x) => x.id !== id)));
+    };
+    const flow = (fromTile: number, toTile: number) => {
+      const id = Math.random();
+      setFlows((f) => [...f, { id, from: spot(state, fromTile), to: spot(state, toTile) }]);
+      later(1500, () => setFlows((f) => f.filter((x) => x.id !== id)));
     };
     const flash = (tile: number, cls: string) => {
       setFlashes((f) => ({ ...f, [tile]: cls }));
@@ -144,7 +175,47 @@ export function useFx(state: PublicState, me: string | null) {
           if (f.tile !== undefined) {
             flash(f.tile, 'flash-rent');
             if (f.amount) float(f.tile, f.amount, false);
+            const owner = state.properties[f.tile]?.owner;
+            const ownerAt = state.players.find((p) => p.id === owner)?.position;
+            if (ownerAt !== undefined && ownerAt !== f.tile) flow(f.tile, ownerAt);
           }
+          break;
+        case 'toll':
+          if (f.tile !== undefined && f.amount) {
+            float(f.tile, f.amount, false);
+            const owner = state.properties[f.tile]?.owner;
+            const ownerAt = state.players.find((p) => p.id === owner)?.position;
+            if (ownerAt !== undefined) flow(f.tile, ownerAt);
+          }
+          break;
+        case 'news':
+          show({ tone: 'accent', icon: <Newspaper />, title: 'Breaking news', sub: state.lastCard?.text.slice(0, 60) }, 2200);
+          break;
+        case 'committee':
+          show({ tone: 'gold', icon: <Handshake />, title: 'Committee!', sub: `${who} take${f.pid === me ? '' : 's'} the pot${f.amount ? ` · $${f.amount}` : ''}` });
+          burst(posOf(f.pid), 'coins');
+          break;
+        case 'shaadi':
+          show({ tone: 'gold', icon: <HeartHandshake />, title: 'Shaadi Mubarak!', sub: `Salami for ${who}${f.amount ? ` · $${f.amount}` : ''}` });
+          burst(posOf(f.pid), 'confetti');
+          break;
+        case 'law':
+          show({ tone: 'accent', icon: <Landmark />, title: 'Parliament', sub: state.lastCard?.text.slice(0, 60) }, 2200);
+          break;
+        case 'culture':
+          show({ tone: 'gold', icon: <Palette />, title: 'Culture prize!', sub: `${who} saw every museum${f.amount ? ` · $${f.amount}` : ''}` });
+          burst(posOf(f.pid), 'confetti');
+          break;
+        case 'festival':
+          show({ tone: 'accent', icon: <PartyPopper />, title: 'Festival!', sub: 'Party time' }, 1500);
+          burst(posOf(f.pid), 'confetti');
+          break;
+        case 'deported':
+          show({ tone: 'bad', icon: <PlaneTakeoff />, title: 'Deported!', sub: `${who} ${f.pid === me ? 'are' : 'is'} on the next flight out` }, 2000);
+          break;
+        case 'fullSet':
+          show({ tone: 'gold', icon: <Crown />, title: 'Full set!', sub: `${who} own${f.pid === me ? '' : 's'} the whole country`, color: colorOf(f.pid) });
+          if (f.tile !== undefined) burst(f.tile, 'confetti');
           break;
         case 'tax':
           if (f.tile !== undefined && f.amount) float(f.tile, f.amount, false);
@@ -193,16 +264,30 @@ export function useFx(state: PublicState, me: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.version]);
 
-  return { banner, floats, bursts, flashes };
+  return { banner, floats, bursts, flashes, flows };
 }
 
 const COIN_N = 14;
 const CONFETTI = ['#fbbf24', '#f472b6', '#7b5cff', '#34d399', '#7dd3fc', '#fb923c'];
 
 export function FxOverlay({ fx }: { fx: ReturnType<typeof useFx> }) {
-  const { banner, floats, bursts } = fx;
+  const { banner, floats, bursts, flows } = fx;
   return (
     <div className="fx-layer" aria-live="polite">
+      {flows.map((f) => (
+        <span key={f.id} className="coin-flow" style={{ left: `${f.from.x}%`, top: `${f.from.y}%` }}>
+          {Array.from({ length: 6 }, (_, i) => (
+            <i
+              key={i}
+              style={{
+                ['--tx' as string]: `${((f.to.x - f.from.x) / 100) * 100}cqw`,
+                ['--ty' as string]: `${((f.to.y - f.from.y) / 100) * 100}cqh`,
+                animationDelay: `${i * 70}ms`,
+              }}
+            />
+          ))}
+        </span>
+      ))}
       {bursts.map((b) => (
         <span key={b.id} className={`burst burst-${b.kind}`} style={{ left: `${b.x}%`, top: `${b.y}%` }}>
           {Array.from({ length: b.kind === 'confetti' ? 22 : COIN_N }, (_, i) => {

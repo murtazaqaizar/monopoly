@@ -1,14 +1,46 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { TrainFront, Bomb, Dices, Droplets, Gift, Palmtree, Plane, Receipt, Siren, Snowflake, TrendingUp, Zap } from 'lucide-react';
-import { SPECIAL_NAMES, specialAt, type SpecialKind } from '../../shared/board';
-import { mapOf, rentFor } from '../../shared/engine';
-import type { Player, PublicState, Tile } from '../../shared/types';
+import {
+  BedDouble,
+  Bomb,
+  Construction,
+  Dices,
+  Droplets,
+  FileText,
+  Gift,
+  HeartHandshake,
+  Landmark,
+  Mountain,
+  Newspaper,
+  Palette,
+  Palmtree,
+  PartyPopper,
+  Plane,
+  PlaneTakeoff,
+  Receipt,
+  Ship,
+  ShoppingBag,
+  ShoppingBasket,
+  Siren,
+  Snowflake,
+  Stamp,
+  TrafficCone,
+  TrainFront,
+  TrendingUp,
+  Trophy,
+  Handshake,
+  Zap,
+} from 'lucide-react';
+import { SPECIAL_NAMES, isBuyable, specialAt, type SpecialKind } from '../../shared/board';
+import { mapOf, ownsGroup, rentFor } from '../../shared/engine';
+import type { BoardMap, Player, PublicState, Tile } from '../../shared/types';
 import { useReactions } from '../social';
 import { play } from '../sound';
 import { Avatar } from './Avatar';
 import { GroupMark } from './Mark';
 import { rateLabel, tileEffects } from './MapSpecials';
 import { Buildings, FxOverlay, useFx } from './FxLayer';
+import { CenterArt } from './CenterArt';
+import { rentInfo } from './rentInfo';
 
 type Side = 'bottom' | 'left' | 'top' | 'right' | 'corner';
 
@@ -37,6 +69,12 @@ export function centerPct(n: number, side = 9): number {
   return ((1.6 + (n - 2) + 0.5) / units) * 100;
 }
 
+/** A tile's centre on the board in %. */
+export function tilePoint(i: number, side: number): { x: number; y: number } {
+  const c = cellOf(i, side);
+  return { x: centerPct(c.col, side), y: centerPct(c.row, side) };
+}
+
 /** Walks tokens one tile at a time toward their real position so moves read as hops. */
 function useHopPositions(players: Player[], size: number, jail: number): Record<string, number> {
   const [shown, setShown] = useState<Record<string, number>>(() =>
@@ -55,7 +93,7 @@ function useHopPositions(players: Player[], size: number, jail: number): Record<
         continue;
       }
       const ahead = (p.position - shown[p.id] + size) % size;
-      // long trips (sent to Prison, cards moving backwards) teleport instead of walking
+      // long trips (sent to Prison, flights, cards moving backwards) teleport instead of walking
       if (ahead > 15 || (p.inJail && p.position === jail)) jumps[p.id] = p.position;
     }
     if (Object.keys(jumps).length) setShown((s) => ({ ...s, ...jumps }));
@@ -104,27 +142,73 @@ function TileIcon({ tile, special, rail }: { tile: Tile; special: SpecialKind | 
     case 'airport':
       return <Plane className="ico sky" strokeWidth={2.2} />;
     case 'utility':
-      return tile.index === 12 ? <Zap className="ico gold" strokeWidth={2.2} /> : <Droplets className="ico sky" strokeWidth={2.2} />;
+      return /water/i.test(tile.name) ? <Droplets className="ico sky" strokeWidth={2.2} /> : <Zap className="ico gold" strokeWidth={2.2} />;
+    case 'port':
+      return <Ship className="ico sky" strokeWidth={2.2} />;
+    case 'news':
+      return <Newspaper className="ico gold" strokeWidth={2.2} />;
+    case 'customs':
+      return <Stamp className="ico rose" strokeWidth={2.2} />;
+    case 'toll':
+      return <TrafficCone className="ico gold" strokeWidth={2.2} />;
+    case 'stadium':
+      return <Trophy className="ico mint" strokeWidth={2.2} />;
+    case 'committee':
+      return <Handshake className="ico gold" strokeWidth={2.2} />;
+    case 'bazaar':
+      return <ShoppingBasket className="ico rose" strokeWidth={2.2} />;
+    case 'shaadi':
+      return <HeartHandshake className="ico rose" strokeWidth={2.2} />;
+    case 'plots':
+      return <FileText className="ico mint" strokeWidth={2.2} />;
+    case 'parliament':
+      return <Landmark className="ico sky" strokeWidth={2.2} />;
+    case 'museum':
+      return <Palette className="ico gold" strokeWidth={2.2} />;
+    case 'festival':
+      return <PartyPopper className="ico rose" strokeWidth={2.2} />;
+    case 'hostel':
+      return <BedDouble className="ico sky" strokeWidth={2.2} />;
     default:
       return null;
   }
 }
 
-function Corner({ tile, jailed, pot }: { tile: Tile; jailed: number; pot: number }) {
+/** Little prison cell: bars, a barred window and a bench. */
+function CellArt() {
+  return (
+    <svg className="cell-art" viewBox="0 0 60 60" aria-hidden>
+      <rect x="4" y="4" width="52" height="52" rx="5" className="cell-wall" />
+      <rect x="20" y="10" width="20" height="12" rx="2" className="cell-window" />
+      {[24, 28, 32, 36].map((x) => (
+        <line key={x} x1={x} y1="10" x2={x} y2="22" className="cell-bar thin" />
+      ))}
+      <rect x="10" y="40" width="40" height="5" rx="1.5" className="cell-bench" />
+      {[10, 18, 26, 34, 42, 50].map((x) => (
+        <line key={x} x1={x} y1="4" x2={x} y2="56" className="cell-bar" />
+      ))}
+    </svg>
+  );
+}
+
+function Corner({ tile, jailed, pot, mapId }: { tile: Tile; jailed: number; pot: number; mapId: string }) {
   switch (tile.kind) {
     case 'go':
       return (
         <div className="corner-body go">
-          <span className="go-word">START</span>
-          <span className="go-sub">collect $200</span>
-          <span className="go-arrow">←</span>
+          <span className={`go-word${tile.name.length > 6 ? ' long' : ''}`}>{tile.name.toUpperCase()}</span>
+          <span className="go-sub">collect salary</span>
+          <span className="go-arrow">
+            <span>←</span>
+          </span>
         </div>
       );
     case 'jail':
       return (
         <div className="corner-body jail">
           <div className="bars">
-            <span>In Prison</span>
+            <CellArt />
+            <span>{tile.name}</span>
             {jailed > 0 && <b>{jailed}</b>}
           </div>
           <span className="visiting">Just visiting</span>
@@ -132,20 +216,129 @@ function Corner({ tile, jailed, pot }: { tile: Tile; jailed: number; pot: number
       );
     case 'parking':
       return (
-        <div className="corner-body">
-          <Palmtree className="ico big mint" strokeWidth={2} />
+        <div className="corner-body parking">
+          {mapId === 'world' ? (
+            <ShoppingBag className="ico big gold sway" strokeWidth={2} />
+          ) : mapId === 'pakistan' ? (
+            <Mountain className="ico big sky" strokeWidth={2} />
+          ) : (
+            <Palmtree className="ico big mint sway" strokeWidth={2} />
+          )}
           <span className="corner-name">{tile.name}</span>
           {pot > 0 && <span className="pot">${pot}</span>}
         </div>
       );
     default:
       return (
-        <div className="corner-body">
-          <Siren className="ico big rose" strokeWidth={2} />
+        <div className="corner-body gotojail">
+          {mapId === 'world' ? (
+            <PlaneTakeoff className="ico big rose" strokeWidth={2} />
+          ) : mapId === 'pakistan' ? (
+            <Construction className="ico big gold" strokeWidth={2} />
+          ) : (
+            <Siren className="ico big rose siren" strokeWidth={2} />
+          )}
           <span className="corner-name">{tile.name}</span>
         </div>
       );
   }
+}
+
+/** Flight arcs, rail lines and the motorway drawn across the middle of the board. */
+function RoutesLayer({ map }: { map: BoardMap }) {
+  if (!map.routes.length) return null;
+  const pull = (p: { x: number; y: number }) => ({ x: p.x + (50 - p.x) * 0.1, y: p.y + (50 - p.y) * 0.1 });
+  return (
+    <svg className="routes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+      {map.routes.map((r, k) => {
+        const a = pull(tilePoint(r.a, map.side));
+        const b = pull(tilePoint(r.b, map.side));
+        let d: string;
+        if (r.kind === 'flight') {
+          // arc: bow the midpoint sideways
+          const mx = (a.x + b.x) / 2;
+          const my = (a.y + b.y) / 2;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const bow = 9 * (k % 2 ? 1 : -1);
+          d = `M${a.x},${a.y} Q${mx + (-dy / len) * bow},${my + (dx / len) * bow} ${b.x},${b.y}`;
+        } else d = `M${a.x},${a.y} L${b.x},${b.y}`;
+        return (
+          <g key={k} className={`route route-${r.kind}`} style={{ ['--rc' as string]: r.color }}>
+            {r.kind !== 'flight' && <path d={d} className="route-bed" />}
+            <path d={d} className="route-line" />
+            <circle cx={a.x} cy={a.y} r="0.9" className="route-end" />
+            <circle cx={b.x} cy={b.y} r="0.9" className="route-end" />
+            <circle r={r.kind === 'flight' ? 0.7 : 0.9} className="route-mover">
+              <animateMotion dur={`${r.kind === 'flight' ? 7 : 9}s`} begin={`${k * 1.3}s`} repeatCount="indefinite" path={d} />
+            </circle>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Hover card for a buyable tile: price, rent table and owner. */
+function HoverCard({ state, index }: { state: PublicState; index: number }) {
+  const map = mapOf(state);
+  const tile = map.tiles[index];
+  const group = tile.group ? map.groups[tile.group] : null;
+  const own = state.properties[index];
+  const owner = own ? state.players.find((p) => p.id === own.owner) : null;
+  const info = rentInfo(state, tile);
+  const at = tilePoint(index, map.side);
+  // sit between the tile and the board centre so it never covers the tile itself
+  const x = at.x + (50 - at.x) * 0.42;
+  const y = at.y + (50 - at.y) * 0.42;
+  return (
+    <div className="hover-card" style={{ left: `${x}%`, top: `${y}%`, ['--g' as string]: group?.color ?? '#475569' }}>
+      <header>
+        {group && <GroupMark group={group} />}
+        <span>
+          <small>{info.label}</small>
+          <b>{tile.name}</b>
+        </span>
+      </header>
+      {info.rows.slice(0, 8).map(([label, value], i) => (
+        <div key={i} className={`hc-row${tile.kind === 'property' && own && own.houses === i ? ' on' : ''}`}>
+          <span>{label}</span>
+          <b>{value}</b>
+        </div>
+      ))}
+      {info.note && <p className="muted small">{info.note}</p>}
+      <footer>
+        <span>${tile.price}</span>
+        {owner ? (
+          <span>
+            <Avatar player={owner} size={14} /> {owner.name}
+            {own?.mortgaged ? ' · mortgaged' : ''}
+          </span>
+        ) : (
+          <span className="muted">For sale</span>
+        )}
+      </footer>
+    </div>
+  );
+}
+
+/** Before the game starts, the chosen map's countries orbit the middle of the board. */
+function LobbyOrbit({ map }: { map: BoardMap }) {
+  const groups = Object.values(map.groups);
+  return (
+    <div className="lobby-orbit" aria-hidden>
+      <div className="orbit-ring">
+        {groups.map((g, i) => (
+          <span key={g.id} className="orbit-item" style={{ ['--a' as string]: `${(i / groups.length) * 360}deg` }}>
+            <span className="orbit-face">
+              <GroupMark group={g} />
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function Board({
@@ -167,6 +360,7 @@ export function Board({
   const sd = map.side;
   const jailed = alive.filter((p) => p.inJail).length;
   const lastDice = state.turn?.dice ? state.turn.dice[0] + state.turn.dice[1] : 7;
+  const [hover, setHover] = useState<number | null>(null);
 
   const onTileMap = new Map<number, string[]>();
   for (const p of alive) {
@@ -174,12 +368,17 @@ export function Board({
     onTileMap.set(at, [...(onTileMap.get(at) ?? []), p.id]);
   }
 
+  // camera: lean in a little toward a token while it hops
+  const mover = alive.find((p) => shown[p.id] !== undefined && shown[p.id] !== p.position);
+  const focus = mover ? tilePoint(shown[mover.id], sd) : null;
+
   return (
     <div
-      className={`board size-${map.size}`}
+      className={`board size-${map.size} map-${map.id}${focus ? ' focused' : ''}`}
       style={{
         gridTemplateColumns: `1.6fr repeat(${sd}, 1fr) 1.6fr`,
         gridTemplateRows: `1.6fr repeat(${sd}, 1fr) 1.6fr`,
+        ...(focus ? { transformOrigin: `${focus.x}% ${focus.y}%` } : {}),
       }}
     >
       {map.tiles.map((t) => {
@@ -190,17 +389,20 @@ export function Board({
         const special = specialAt(state.settings, map, t.index);
         const name = special ? SPECIAL_NAMES[special] : t.name;
         const active = state.turn?.pendingTile === t.index || state.auction?.tile === t.index;
-        const buyable = t.kind === 'property' || t.kind === 'airport' || t.kind === 'utility';
+        const buyable = isBuyable(t.kind);
+        const fullSet = !!(own && t.group && ownsGroup(state, own.owner, t.group));
         const cls = [
           'tile',
           side,
           `kind-${t.kind}`,
+          buyable ? 'buyable' : '',
           owner ? 'owned' : '',
           own?.mortgaged ? 'mortgaged' : '',
           own?.frozen ? 'frozen' : '',
           special ? `special-${special}` : '',
           active ? 'active' : '',
           group ? 'has-group' : '',
+          fullSet ? 'full-set' : '',
           fx.flashes[t.index] ?? '',
           ...tileEffects(state, t.index),
         ].join(' ');
@@ -226,11 +428,13 @@ export function Board({
               ['--group' as string]: group?.color ?? 'transparent',
             }}
             onClick={() => buyable && onTile(t.index)}
+            onMouseEnter={() => buyable && setHover(t.index)}
+            onMouseLeave={() => setHover((h) => (h === t.index ? null : h))}
             tabIndex={buyable ? 0 : -1}
             aria-label={owner ? `${name}, owned by ${owner.name}` : name}
           >
             {side === 'corner' ? (
-              <Corner tile={t} jailed={jailed} pot={state.settings.jackpot ? state.pot : 0} />
+              <Corner tile={t} jailed={jailed} pot={state.settings.jackpot ? state.pot : 0} mapId={map.id} />
             ) : (
               <span className="tile-body">
                 <span className="tile-icon">
@@ -251,11 +455,15 @@ export function Board({
       <div className={`board-center map-${map.id}`}>
         <div className="center-deco" aria-hidden>
           <span className="deco-ring" />
+          <CenterArt mapId={map.id} />
           <span className="deco-word">RICHLANDS</span>
           <span className="deco-map">{map.name}</span>
         </div>
+        {state.phase === 'lobby' && <LobbyOrbit map={map} />}
         {children}
       </div>
+
+      <RoutesLayer map={map} />
 
       <FxOverlay fx={fx} />
 
@@ -273,7 +481,7 @@ export function Board({
           return (
             <span
               key={p.id}
-              className={`token${isTurn ? ' turn' : ''}${p.inJail ? ' jailed' : ''}`}
+              className={`token${isTurn ? ' turn' : ''}${p.inJail ? ' jailed' : ''}${state.special.away?.[p.id] ? ' away' : ''}`}
               style={{
                 left: `calc(${centerPct(col, sd)}% + ${Math.cos(angle) * spread}%)`,
                 top: `calc(${centerPct(row, sd)}% + ${Math.sin(angle) * spread}%)`,
@@ -284,6 +492,8 @@ export function Board({
           );
         })}
       </div>
+
+      {hover !== null && state.phase !== 'lobby' && <HoverCard state={state} index={hover} />}
     </div>
   );
 }

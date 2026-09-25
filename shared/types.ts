@@ -8,7 +8,23 @@ export type TileKind =
   | 'chest'
   | 'jail'
   | 'parking'
-  | 'gotojail';
+  | 'gotojail'
+  // World Tour
+  | 'port'
+  | 'news'
+  | 'customs'
+  // Pakistan
+  | 'toll'
+  | 'stadium'
+  | 'committee'
+  | 'bazaar'
+  | 'shaadi'
+  | 'plots'
+  // Euro Trip
+  | 'parliament'
+  | 'museum'
+  | 'festival'
+  | 'hostel';
 
 export interface Tile {
   index: number;
@@ -31,6 +47,21 @@ export interface Group {
   /** emoji badge for maps without country flags */
   badge?: string;
   tiles: number[];
+  /** continent, for the World Tour continent bonus */
+  region?: string;
+  /** own currency that floats against the euro (Euro Trip) */
+  currency?: string;
+  /** outside the EU: crossing in costs a border fee (Euro Trip) */
+  nonEU?: boolean;
+}
+
+/** A link drawn through the middle of the board: a flight route, rail line or motorway. */
+export interface Route {
+  a: number;
+  b: number;
+  kind: 'flight' | 'rail' | 'road';
+  name: string;
+  color: string;
 }
 
 export interface BoardMap {
@@ -48,7 +79,12 @@ export interface BoardMap {
   goToJail: number;
   airports: number[];
   utilities: number[];
-  /** card tiles that become special squares when their rule is on */
+  ports: number[];
+  tolls: number[];
+  stadiums: number[];
+  museums: number[];
+  routes: Route[];
+  /** action tiles that become special squares when their general rule is on */
   specials: { sabotage: number; stocks: number; arcade: number };
 }
 
@@ -84,6 +120,8 @@ export interface Player {
   revived: boolean;
   /** set per viewer when cash is hidden: 'hidden' or [low, high] */
   cashMask?: 'hidden' | [number, number];
+  /** board piece shape id (car, plane, crown...) */
+  piece: string;
 }
 
 export interface Ownership {
@@ -95,7 +133,26 @@ export interface Ownership {
   frozen: number;
 }
 
-export type Stage = 'roll' | 'buy' | 'auction' | 'sabotage' | 'stocks' | 'minigame' | 'bus' | 'teleport' | 'travel' | 'bribe' | 'end';
+export type Stage =
+  | 'roll'
+  | 'buy'
+  | 'auction'
+  | 'sabotage'
+  | 'stocks'
+  | 'minigame'
+  | 'bus'
+  | 'teleport'
+  | 'travel'
+  | 'bribe'
+  | 'shop'
+  | 'plots'
+  | 'parliament'
+  | 'trip'
+  | 'end';
+
+export type ShopItem = 'powerUp' | 'jailCard' | 'insurance' | 'ups' | 'cash';
+
+export type LawId = 'rentCap' | 'rentUp' | 'solidarity' | 'freeRail' | 'buildFreeze' | 'stimulus';
 
 export type SpeedFace = 1 | 2 | 3 | 'bus' | 'rocket';
 
@@ -114,10 +171,12 @@ export interface Turn {
   speed: SpeedFace | null;
   /** Schengen hop: extra steps added to this turn's roll */
   bonus: number;
-  /** connecting flight / rail pass offer after landing on an airport or station */
-  travel: { cost: number } | null;
-  /** chai-pani: what the bribe would skip */
-  bribe: { kind: 'tax' | 'jail'; tile: number } | null;
+  /** ride on offer after landing on an airport, station or toll plaza; the fare goes to the destination's owner */
+  travel: { cost: number; to: number[]; via: Route['kind'] } | null;
+  /** chai-pani: what the bribe would skip; 'naka' also allows paying the checkpoint fine */
+  bribe: { kind: 'tax' | 'jail' | 'naka'; tile: number } | null;
+  /** Duty-Free counter or a bazaar stall */
+  shop: { kind: 'dutyfree' | 'bazaar'; items: { item: ShopItem; price: number }[]; haggles: number } | null;
   /** already attacked this turn (World War) */
   attacked: boolean;
 }
@@ -232,6 +291,26 @@ export interface SpecialState {
   schengen: Record<string, number>;
   vote: { groups: string[]; endsAt: number; votes: Record<string, string> } | null;
   match: { a: string; b: string; endsAt: number; bets: Record<string, { group: string; amount: number }> } | null;
+  /** timed rent multipliers from news, festivals and the like */
+  boosts: { group: string | null; kind: TileKind | null; factor: number; roundsLeft: number; label: string }[];
+  /** World time zones: the board side where it's night */
+  night: number;
+  /** Pakistan committee pot */
+  committee: number;
+  /** Pakistan plot files: shared market value and files held per player */
+  plots: { value: number; owned: Record<string, number> };
+  /** players away on the Northern Areas trip (their cities earn double) */
+  away: Record<string, boolean>;
+  /** used their one sifarish call during this Thana stay */
+  sifarish: Record<string, boolean>;
+  /** EU Parliament: bill being voted on, and the law in force */
+  bill: { law: LawId; by: string; endsAt: number; votes: Record<string, boolean> } | null;
+  law: { id: LawId; roundsLeft: number } | null;
+  /** museums each player has visited, and the culture fund */
+  museums: Record<string, number[]>;
+  culture: number;
+  /** who last completed each set, so the full-set moment is announced once */
+  sets: Record<string, string>;
 }
 
 /** One side of a trade: what that player hands over. */
@@ -356,7 +435,17 @@ export type FxKind =
   | 'chaos'
   | 'war'
   | 'train'
-  | 'blackout';
+  | 'blackout'
+  | 'news'
+  | 'shop'
+  | 'toll'
+  | 'committee'
+  | 'shaadi'
+  | 'law'
+  | 'culture'
+  | 'festival'
+  | 'deported'
+  | 'fullSet';
 
 export interface Fx {
   id: number;
@@ -376,7 +465,7 @@ export interface LogEntry {
 }
 
 export interface CardShown {
-  deck: 'chance' | 'chest' | 'event' | 'arcade';
+  deck: 'chance' | 'chest' | 'event' | 'arcade' | 'news' | 'hostel';
   text: string;
   playerId: string;
   at: number;
@@ -491,7 +580,16 @@ export type Action =
   | { type: 'busChoice'; pick: 0 | 1 | 2 }
   | { type: 'teleportTo'; tile: number }
   | { type: 'travel'; tile: number }
-  | { type: 'bribe'; offer: boolean }
+  | { type: 'bribe'; offer: boolean; fine?: boolean }
+  | { type: 'shopBuy'; index: number }
+  | { type: 'haggle' }
+  | { type: 'buyPlot' }
+  | { type: 'sellPlot' }
+  | { type: 'propose'; law: LawId }
+  | { type: 'billVote'; yes: boolean }
+  | { type: 'trip'; go: boolean }
+  | { type: 'sifarish' }
+  | { type: 'setPiece'; piece: string }
   | { type: 'schengen'; extra: 1 | 2 }
   | { type: 'attack'; tile: number }
   | { type: 'buyUps' }

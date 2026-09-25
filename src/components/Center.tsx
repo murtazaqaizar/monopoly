@@ -1,14 +1,25 @@
 import { useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Bomb, Crown, Gavel, Hourglass, Play, Sparkles, Timer, TrendingUp, Zap } from 'lucide-react';
-import { BUILDING_NAMES, describeSide, JET_RANGE, MAX_SHARES, POWER_UPS, sharePrice, tileOf, mapOf } from '../../shared/engine';
+import { BUILDING_NAMES, describeSide, JET_RANGE, MAX_SHARES, PIECES, POWER_UPS, sharePrice, tileOf, mapOf } from '../../shared/engine';
 import type { Player, PowerUpKind, PublicState } from '../../shared/types';
 import { forgetSeat, navigate, send, useNow, useSnapshot } from '../net';
-import { Avatar } from './Avatar';
+import { Avatar, PieceIcon } from './Avatar';
 import { Dice3D } from './Dice3D';
 import { GroupMark } from './Mark';
 import { ReactionBar } from './Social';
 import { EndSummary, ReplayViewer } from './Stats';
-import { BribeChoice, SchengenButtons, Showtime, SpecialStatus, TravelChoice, WarPanel } from './MapSpecials';
+import {
+  BribeChoice,
+  ParliamentChoice,
+  PlotsChoice,
+  SchengenButtons,
+  ShopChoice,
+  Showtime,
+  SpecialStatus,
+  TravelChoice,
+  TripChoice,
+  WarPanel,
+} from './MapSpecials';
 import { play } from '../sound';
 
 export function Center({ state, me }: { state: PublicState; me: string | null }) {
@@ -23,6 +34,19 @@ export function Center({ state, me }: { state: PublicState; me: string | null })
     const winner = state.players.find((p) => p.id === state.winner);
     return (
       <div className="center">
+        <div className="confetti-rain" aria-hidden>
+          {Array.from({ length: 36 }, (_, i) => (
+            <i
+              key={i}
+              style={{
+                left: `${(i * 37) % 100}%`,
+                animationDelay: `${(i % 12) * 0.25}s`,
+                animationDuration: `${2.6 + (i % 5) * 0.4}s`,
+                ['--c' as string]: ['#fbbf24', '#f472b6', '#7b5cff', '#34d399', '#7dd3fc', '#fb923c'][i % 6],
+              }}
+            />
+          ))}
+        </div>
         <div className="winner">
           <Crown className="crown" size={40} />
           <h2>
@@ -47,12 +71,20 @@ export function Center({ state, me }: { state: PublicState; me: string | null })
   let main;
   if (state.phase === 'lobby') {
     const isHost = state.hostId === me;
-    main = isHost ? (
-      <button className="btn primary big cta" disabled={state.players.length < 2} onClick={() => send({ type: 'start' })}>
-        <Play size={18} fill="currentColor" /> {state.players.length < 2 ? 'Waiting for players' : 'Start game'}
-      </button>
-    ) : (
-      <p className="waiting">{me ? 'Waiting for the host to start…' : 'Watching this room'}</p>
+    main = (
+      <div className="actions">
+        {isHost ? (
+          <button className="btn primary big cta" disabled={state.players.length < 2} onClick={() => send({ type: 'start' })}>
+            <Play size={18} fill="currentColor" /> {state.players.length < 2 ? 'Waiting for players' : 'Start game'}
+          </button>
+        ) : (
+          <p className="waiting">{me ? 'Waiting for the host to start…' : 'Watching this room'}</p>
+        )}
+        {mine && <PiecePicker state={state} me={mine} />}
+        <p className="muted small map-blurb">
+          <b>{mapOf(state).name}</b> · {mapOf(state).blurb}
+        </p>
+      </div>
     );
   } else if (state.auction) {
     main = <AuctionPanel state={state} me={me} />;
@@ -89,10 +121,24 @@ export function Center({ state, me }: { state: PublicState; me: string | null })
 
       {state.lastCard && state.phase === 'playing' && (
         <div key={state.lastCard.at} className={`card-drawn ${state.lastCard.deck}`}>
-          <span className="card-kind">
-            {{ chance: 'Surprise', chest: 'Treasure', event: 'World event', arcade: 'Arcade' }[state.lastCard.deck]}
-          </span>
-          <p>{state.lastCard.text}</p>
+          <div className="card-inner">
+            <span className="card-kind">
+              {
+                {
+                  chance: 'Surprise',
+                  chest: 'Treasure',
+                  event: 'World event',
+                  arcade: 'Arcade',
+                  news: 'World News',
+                  hostel: 'Hostel',
+                }[state.lastCard.deck]
+              }
+            </span>
+            <p>{state.lastCard.text}</p>
+          </div>
+          <div className="card-back" aria-hidden>
+            {{ chance: '?', chest: '🎁', event: '🌐', arcade: '🎲', news: '📰', hostel: '🛏️' }[state.lastCard.deck]}
+          </div>
         </div>
       )}
 
@@ -104,6 +150,28 @@ export function Center({ state, me }: { state: PublicState; me: string | null })
 
       <Feed state={state} />
       {state.phase === 'playing' && <ReactionBar />}
+    </div>
+  );
+}
+
+/** Change your board piece while waiting in the lobby. */
+function PiecePicker({ state, me }: { state: PublicState; me: Player }) {
+  const taken = new Set(state.players.filter((p) => p.id !== me.id).map((p) => p.piece));
+  return (
+    <div className="pieces small" aria-label="Board piece">
+      {PIECES.map((k) => (
+        <button
+          key={k}
+          className={`piece-pick${k === me.piece ? ' on' : ''}`}
+          style={{ ['--c' as string]: me.color }}
+          disabled={taken.has(k)}
+          aria-label={k}
+          aria-pressed={k === me.piece}
+          onClick={() => send({ type: 'setPiece', piece: k })}
+        >
+          <PieceIcon piece={k} />
+        </button>
+      ))}
     </div>
   );
 }
@@ -216,7 +284,15 @@ function verb(stage?: string) {
     case 'travel':
       return 'deciding whether to travel on…';
     case 'bribe':
-      return 'thinking about chai-pani…';
+      return 'talking to the police…';
+    case 'shop':
+      return 'browsing the shop…';
+    case 'plots':
+      return 'talking to the property dealer…';
+    case 'parliament':
+      return 'drafting a law…';
+    case 'trip':
+      return 'thinking about a trip up north…';
     default:
       return 'finishing their turn…';
   }
@@ -229,9 +305,12 @@ function MyTurn({ state, me }: { state: PublicState; me: Player }) {
 
   if (turn.stage === 'roll') {
     if (me.inJail) {
+      const jailName = map.tiles[map.jail].name;
       return (
         <div className="actions">
-          <p className="hint">You're in Prison · try {me.jailTurns + 1} of {state.settings.jailTries}</p>
+          <p className="hint">
+            You're in {jailName} · try {me.jailTurns + 1} of {state.settings.jailTries}
+          </p>
           <div className="row">
             <button className="btn primary big cta" disabled={inDebt} onClick={() => send({ type: 'roll' })}>
               Roll for doubles
@@ -242,6 +321,11 @@ function MyTurn({ state, me }: { state: PublicState; me: Player }) {
             {me.jailCards > 0 && (
               <button className="btn big" onClick={() => send({ type: 'useJailCard' })}>
                 Use card ({me.jailCards})
+              </button>
+            )}
+            {map.id === 'pakistan' && !state.special.sifarish[me.id] && (
+              <button className="btn big" title="50% chance an uncle gets you out. Once per stay." onClick={() => send({ type: 'sifarish' })}>
+                📞 Sifarish
               </button>
             )}
           </div>
@@ -388,6 +472,10 @@ function MyTurn({ state, me }: { state: PublicState; me: Player }) {
 
   if (turn.stage === 'travel') return <TravelChoice state={state} me={me} />;
   if (turn.stage === 'bribe') return <BribeChoice state={state} />;
+  if (turn.stage === 'shop') return <ShopChoice state={state} me={me} />;
+  if (turn.stage === 'plots') return <PlotsChoice state={state} me={me} />;
+  if (turn.stage === 'parliament') return <ParliamentChoice />;
+  if (turn.stage === 'trip') return <TripChoice />;
 
   if (turn.stage === 'teleport') {
     return <Teleport state={state} me={me} />;
@@ -413,11 +501,17 @@ function MyTurn({ state, me }: { state: PublicState; me: Player }) {
     );
   }
 
+  const plots = state.special.plots.owned[me.id] ?? 0;
   return (
     <div className="actions">
       <button className="btn primary big cta" disabled={inDebt} onClick={() => send({ type: 'endTurn' })}>
         End turn
       </button>
+      {plots > 0 && (
+        <button className="btn small" onClick={() => send({ type: 'sellPlot' })}>
+          📄 Sell a plot file (${state.special.plots.value})
+        </button>
+      )}
     </div>
   );
 }

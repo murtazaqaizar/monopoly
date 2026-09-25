@@ -389,6 +389,53 @@ const SOUNDS: Record<SoundName, () => void> = {
     tone(220, 0, 0.7, { type: 'sawtooth', to: 40, gain: 0.08, cutoff: 900 });
     noise(0, 0.1, { freq: 4000, q: 2, gain: 0.15 });
   },
+  news() {
+    // newsroom sting: urgent staccato over a low pulse
+    arp([76, 76, 79, 76], 0, 0.09, 0.08, { type: 'square', gain: 0.07, cutoff: 3000 });
+    tone(NOTE(52), 0, 0.5, { type: 'sawtooth', gain: 0.05, cutoff: 700 });
+  },
+  shop() {
+    // shop door bell and the till
+    tone(NOTE(88), 0, 0.3, { gain: 0.12 });
+    tone(NOTE(84), 0.12, 0.4, { gain: 0.12 });
+    SOUNDS.buy();
+  },
+  toll() {
+    // barrier beep and a coin in the slot
+    tone(1400, 0, 0.08, { type: 'square', gain: 0.06, cutoff: 3000 });
+    coin(0.1, 0.85);
+  },
+  committee() {
+    for (let i = 0; i < 8; i++) coin(i * 0.06, 0.8 + (i % 3) * 0.1);
+    arp([67, 72, 76], 0.1, 0.08, 0.3, { type: 'triangle', gain: 0.12 });
+  },
+  shaadi() {
+    // dhol beats with a shehnai-ish wail
+    for (let i = 0; i < 6; i++) knock(i * 0.11, i % 2 ? 0.25 : 0.4);
+    tone(NOTE(74), 0.1, 0.7, { type: 'sawtooth', to: NOTE(77), gain: 0.05, cutoff: 2200, vibrato: 7 });
+  },
+  law() {
+    // gavel and a short fanfare
+    knock(0, 0.5);
+    arp([67, 72, 76], 0.18, 0.1, 0.35, { type: 'triangle', gain: 0.12 });
+  },
+  culture() {
+    // a little chamber chord
+    [60, 64, 67, 72].forEach((n, i) => tone(NOTE(n), i * 0.08, 1, { type: 'triangle', gain: 0.08, attack: 0.03 }));
+    coin(0.5);
+  },
+  festival() {
+    arp([72, 76, 79, 84, 79, 84], 0, 0.07, 0.15, { type: 'square', gain: 0.06, cutoff: 3500 });
+    for (let i = 0; i < 5; i++) noise(0.1 + i * 0.1, 0.05, { freq: 5000, q: 2, gain: 0.08 });
+  },
+  deported() {
+    tone(700, 0, 0.5, { type: 'sawtooth', to: 350, gain: 0.07, cutoff: 1800 });
+    SOUNDS.jet();
+  },
+  fullSet() {
+    arp([72, 76, 79, 84], 0, 0.06, 0.4, { type: 'triangle', gain: 0.13 });
+    tone(NOTE(96), 0.3, 0.8, { gain: 0.05, vibrato: 8 });
+  },
   yourTurn() {
     tone(NOTE(76), 0, 0.35, { gain: 0.14 });
     tone(NOTE(83), 0.12, 0.6, { gain: 0.14 });

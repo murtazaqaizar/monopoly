@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ArrowLeftRight, Check, Flag, Handshake, Landmark, LogOut, Shield, ShieldCheck, UserX, X } from 'lucide-react';
 import { specialOn, allianceBetween, bankLoanLimit, describeSide, INSURANCE_COST, INSURANCE_TURNS, netWorth, mapOf } from '../../shared/engine';
 import type { Offer, Player, PublicState, TradeOffer } from '../../shared/types';
@@ -11,6 +11,43 @@ export function cashLabel(p: Player): string {
   if (p.cashMask === 'hidden') return '$???';
   if (Array.isArray(p.cashMask)) return `$${p.cashMask[0] / 1000}k–${p.cashMask[1] / 1000}k`;
   return `$${p.cash}`;
+}
+
+/** Cash that counts up or down to its new value, flashing green or red while it moves. */
+function Cash({ p }: { p: Player }) {
+  const [shown, setShown] = useState(p.cash);
+  const [dir, setDir] = useState<'up' | 'down' | null>(null);
+  const from = useRef(p.cash);
+  useEffect(() => {
+    const start = from.current;
+    const end = p.cash;
+    if (start === end || p.cashMask) {
+      from.current = end;
+      setShown(end);
+      return;
+    }
+    setDir(end > start ? 'up' : 'down');
+    const t0 = performance.now();
+    const ms = 700;
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms);
+      const eased = 1 - (1 - k) ** 3;
+      setShown(Math.round(start + (end - start) * eased));
+      if (k < 1) raf = requestAnimationFrame(step);
+      else {
+        from.current = end;
+        setDir(null);
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      from.current = end;
+    };
+  }, [p.cash, p.cashMask]);
+  if (p.cashMask) return <span className="cash">{cashLabel(p)}</span>;
+  return <span className={`cash${p.cash < 0 ? ' neg' : ''}${dir ? ` counting ${dir}` : ''}`}>${shown}</span>;
 }
 
 export function Players({ state, me }: { state: PublicState; me: string | null }) {
@@ -51,7 +88,7 @@ export function Players({ state, me }: { state: PublicState; me: string | null }
                 </span>
               )}
             </div>
-            {state.phase !== 'lobby' && <span className={`cash${p.cash < 0 && !p.cashMask ? ' neg' : ''}`}>{cashLabel(p)}</span>}
+            {state.phase !== 'lobby' && <Cash p={p} />}
             {isHost && state.phase === 'lobby' && state.settings.turnOrder === 'host' && (
               <span className="order-btns">
                 <button className="icon-btn" aria-label={`Move ${p.name} up`} onClick={() => send({ type: 'movePlayer', playerId: p.id, dir: -1 })}>

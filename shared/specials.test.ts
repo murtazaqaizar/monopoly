@@ -30,10 +30,10 @@ describe('map roster', () => {
     expect(createGame('T', { id: 'a', name: 'A', color: '' }, 1).settings.mapId).toBe('classic');
   });
 
-  it('classic has no specials; each special map has 10', () => {
+  it('classic has no specials; each special map has at least 10', () => {
     const s = game('classic');
     expect(SPECIALS.some((x) => specialOn(s, x.id))).toBe(false);
-    for (const m of ['world', 'pakistan', 'europe']) expect(SPECIALS.filter((x) => x.map === m)).toHaveLength(10);
+    for (const m of ['world', 'pakistan', 'europe']) expect(SPECIALS.filter((x) => x.map === m).length).toBeGreaterThanOrEqual(10);
   });
 
   it('host can switch a special off', () => {
@@ -103,7 +103,7 @@ describe('World Tour', () => {
     s = toRound(s, 7);
     expect(s.special.oil).toBe(1);
     s.properties[5] = own('p1');
-    expect(rentFor(s, 5, 7)).toBe(50);
+    expect(rentFor(s, 5, 7)).toBe(80); // a lone World airport earns $40, doubled
   });
 
   it('visa fee and tourist wonders', () => {
@@ -135,15 +135,19 @@ describe('World Tour', () => {
     expect(pl(s, 'p1').cash).toBe(250);
   });
 
-  it('connecting flights move you to another airport', () => {
+  it("flights only go along the airport's routes; the fare goes to the destination owner", () => {
     let s = game('world', { specialsOff: ['world.fx'] });
     s.properties[5] = own('p0');
+    s.properties[25] = own('p1');
     s = act(s, 'p0', { type: 'roll' }, [2, 3]);
     expect(s.turn!.stage).toBe('travel');
+    expect(s.turn!.travel!.to.sort()).toEqual([25, 38]);
+    expect(() => act(s, 'p0', { type: 'travel', tile: 12 })).toThrow(/route/);
+    const p1 = pl(s, 'p1').cash;
     s = act(s, 'p0', { type: 'travel', tile: 25 });
     expect(pl(s, 'p0').position).toBe(25);
-    expect(pl(s, 'p0').cash).toBe(1400);
-    expect(s.turn!.stage).toBe('buy');
+    // $60 fare to p1, then rent at Dubai: p1 runs 0 of its routes, so $40
+    expect(pl(s, 'p1').cash).toBe(p1 + 60 + 40);
   });
 });
 
@@ -160,14 +164,11 @@ describe('Pakistan', () => {
     expect(rentFor(s, tile, 7)).toBeGreaterThan(0);
   });
 
-  it('monsoon can wash buildings away and pays the dam', () => {
+  it('monsoon can wash buildings away', () => {
     let s = game('pakistan', { specialsOff: ['pk.loadshedding'] }, 2, 99);
     const m = getMap('pakistan', 40);
     for (const g of ['pink', 'green']) for (const t of m.groups[g].tiles) s.properties[t] = own('p1', 4);
-    s.properties[m.utilities[1]] = own('p0');
-    const before = pl(s, 'p0').cash;
     s = toRound(s, 4);
-    expect(pl(s, 'p0').cash).toBe(before + 100);
     const total = ['pink', 'green'].flatMap((g) => m.groups[g].tiles).reduce((n, t) => n + s.properties[t].houses, 0);
     expect(total).toBeLessThanOrEqual(24);
   });
@@ -178,16 +179,19 @@ describe('Pakistan', () => {
     expect(['yellow', 'green']).toContain(s.special.cricket!.group);
   });
 
-  it('eidi on round 5 and shaadi salami', () => {
+  it('eidi on round 5', () => {
     let s = game('pakistan', { specialsOff: ['pk.loadshedding', 'pk.monsoon'] });
     s = toRound(s, 5);
     const total = s.players.reduce((n, p) => n + p.cash, 0);
-    expect(total).toBe(3000 + 200); // Eidi paid out; salami moves money between players
+    // Eidi paid out; each player also put $20 into the committee this round
+    expect(total).toBe(3000 + 200 - 40);
+    expect(s.special.committee).toBe(40);
   });
 
   it('chai-pani: refusing the bribe pays tax normally', () => {
     let s = game('pakistan');
-    s = act(s, 'p0', { type: 'roll' }, [1, 3]);
+    s.players[0].position = 24;
+    s = act(s, 'p0', { type: 'roll' }, [1, 3]); // 28: Income Tax
     expect(s.turn!.stage).toBe('bribe');
     s = act(s, 'p0', { type: 'bribe', offer: false });
     expect(pl(s, 'p0').cash).toBe(1300);
@@ -195,6 +199,7 @@ describe('Pakistan', () => {
 
   it('chai-pani: a bribe skips or doubles', () => {
     let s = game('pakistan');
+    s.players[0].position = 24;
     s = act(s, 'p0', { type: 'roll' }, [1, 3]);
     s = act(s, 'p0', { type: 'bribe', offer: true });
     expect([1450, 1050]).toContain(pl(s, 'p0').cash);

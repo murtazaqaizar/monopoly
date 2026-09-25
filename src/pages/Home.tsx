@@ -19,7 +19,7 @@ export function Home() {
           busy={busy}
           onSubmit={async (p) => {
             setBusy(true);
-            const res = await createRoom(p.name, p.color);
+            const res = await createRoom(p.name, p.color, p.piece);
             setBusy(false);
             if (!res.ok) return toast(res.error);
             saveSeat(res.code!, { token: res.token!, playerId: res.playerId! });

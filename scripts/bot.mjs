@@ -21,7 +21,7 @@ const act = (action) =>
   );
 
 s.on('connect', () =>
-  s.emit('room:join', { code, name, color: '#22c55e' }, (res) => {
+  s.emit('room:join', { code, name, color: '#22c55e', piece: 'rocket' }, (res) => {
     if (!res.ok) {
       console.log('join failed:', res.error);
       process.exit(1);
@@ -60,16 +60,29 @@ async function play() {
       if (latest === state) break;
       continue;
     }
+    // vote yes on any bill in Parliament
+    const bill = state.special?.bill;
+    if (bill && bill.votes[me] === undefined) {
+      await act({ type: 'billVote', yes: Math.random() < 0.6 });
+      if (latest === state) break;
+      continue;
+    }
     if (turn.playerId !== me || state.auction) break;
     await new Promise((r) => setTimeout(r, 700));
     if (latest !== state) continue;
     if (p.cash < 0) await act({ type: 'bankrupt' });
     else if (turn.stage === 'roll') await act({ type: 'roll' });
     else if (turn.stage === 'buy') (await act({ type: 'buy' })) || (await act({ type: 'decline' }));
-    else if (['sabotage', 'stocks', 'minigame'].includes(turn.stage)) await act({ type: 'skipSpecial' });
+    else if (['sabotage', 'stocks', 'minigame', 'plots'].includes(turn.stage)) await act({ type: 'skipSpecial' });
+    else if (turn.stage === 'shop') (await act({ type: 'shopBuy', index: 0 })) || (await act({ type: 'skipSpecial' }));
+    else if (turn.stage === 'parliament') await act({ type: 'propose', law: 'rentUp' });
+    else if (turn.stage === 'trip') await act({ type: 'trip', go: Math.random() < 0.5 });
     else if (turn.stage === 'bus') await act({ type: 'busChoice', pick: 2 });
     else if (turn.stage === 'travel') await act({ type: 'skipSpecial' });
-    else if (turn.stage === 'bribe') await act({ type: 'bribe', offer: Math.random() < 0.5 });
+    else if (turn.stage === 'bribe')
+      turn.bribe?.kind === 'naka'
+        ? (await act({ type: 'bribe', offer: false, fine: true })) || (await act({ type: 'bribe', offer: false }))
+        : await act({ type: 'bribe', offer: Math.random() < 0.5 });
     else if (turn.stage === 'teleport') await act({ type: 'teleportTo', tile: (p.position + 5) % state.size });
     else if (turn.stage === 'end') await act({ type: 'endTurn' });
     if (latest === state) break;

@@ -1,10 +1,9 @@
 import { useEffect } from 'react';
-import { BUILDING_NAMES, buildCost, maxBuildings, mortgageValue, ownsGroup, rentTable, tileOf, unmortgageCost, mapOf } from '../../shared/engine';
+import { BUILDING_NAMES, buildCost, maxBuildings, mortgageValue, ownsGroup, tileOf, unmortgageCost, mapOf } from '../../shared/engine';
 import type { PublicState } from '../../shared/types';
 import { send } from '../net';
 import { GroupMark } from './Mark';
-
-const RENT_LABELS = ['Rent', 'With 1 house', 'With 2 houses', 'With 3 houses', 'With 4 houses', 'With a hotel', 'With a skyscraper', 'With a landmark'];
+import { rentInfo } from './rentInfo';
 
 export function PropertyModal({
   state,
@@ -32,49 +31,31 @@ export function PropertyModal({
   const myTurn = state.turn?.playerId === me;
   const fullSet = own && tile.group ? ownsGroup(state, own.owner, tile.group) : false;
   const setHasBuildings = group ? group.tiles.some((i) => (state.properties[i]?.houses ?? 0) > 0) : false;
+  const info = rentInfo(state, tile);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-label={tile.name} onClick={(e) => e.stopPropagation()}>
         <header className="deed-head" style={{ background: group?.color ?? '#334155' }}>
           {group && <GroupMark group={group} className="deed-flag" />}
-          <small>{group ? group.name : tile.kind === 'airport' ? 'Airport' : 'Utility'}</small>
+          <small>{info.label}</small>
           <h2>{tile.name}</h2>
         </header>
 
         <div className="deed-body">
-          {tile.kind === 'property' && (
+          {info.rows.length > 0 && (
             <table className="rents">
               <tbody>
-                {rentTable(tile).slice(0, maxBuildings(state) + 1).map((r, i) => (
-                  <tr key={i} className={own && !own.mortgaged && own.houses === i ? 'current' : ''}>
-                    <td>
-                      {RENT_LABELS[i]}
-                      {i === 0 && <small> (x2 with full set)</small>}
-                    </td>
-                    <td>${r}</td>
+                {info.rows.map(([label, value], i) => (
+                  <tr key={i} className={tile.kind === 'property' && own && !own.mortgaged && own.houses === i ? 'current' : ''}>
+                    <td>{label}</td>
+                    <td>{value}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-          {tile.kind === 'airport' && (
-            <table className="rents">
-              <tbody>
-                {[1, 2, 3, 4].map((n) => (
-                  <tr key={n}>
-                    <td>
-                      Owner has {n} airport{n > 1 ? 's' : ''}
-                    </td>
-                    <td>${25 * 2 ** (n - 1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {tile.kind === 'utility' && (
-            <p className="muted">Rent is 4x the dice roll, or 10x if the owner has both utilities.</p>
-          )}
+          {info.note && <p className="muted small">{info.note}</p>}
 
           <dl className="deed-facts">
             <div>
