@@ -24,6 +24,8 @@ const FLAG_FILES = import.meta.glob(
     '/node_modules/flag-icons/flags/1x1/au.svg',
     '/node_modules/flag-icons/flags/1x1/ae.svg',
     '/node_modules/flag-icons/flags/1x1/pl.svg',
+    '/node_modules/flag-icons/flags/1x1/il.svg',
+    '/node_modules/flag-icons/flags/1x1/ca.svg',
   ],
   { eager: true, query: '?url', import: 'default' },
 ) as Record<string, string>;

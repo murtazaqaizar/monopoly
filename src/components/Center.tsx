@@ -548,7 +548,8 @@ function AuctionPanel({ state, me }: { state: PublicState; me: string | null }) 
       <div className="auction-bar">
         <span style={{ width: `${Math.min(100, (msLeft / 10000) * 100)}%` }} className={msLeft < 3000 ? 'low' : ''} />
       </div>
-      {canBid && (
+      {canBid && a.highBidder === me && <p className="hint leading">You're the highest bidder. Wait for someone to outbid you.</p>}
+      {canBid && a.highBidder !== me && (
         <div className="row">
           {[2, 10, 100].map((inc) => (
             <button

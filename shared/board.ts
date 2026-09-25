@@ -247,7 +247,28 @@ const WORLD_DEF: Omit<MapDef, 'id' | 'name' | 'blurb'> = {
 };
 
 const DEFS: MapDef[] = [
-  { id: 'classic', name: 'Classic', blurb: 'The standard board. No map specials', ...WORLD_DEF },
+  {
+    id: 'classic',
+    name: 'Classic',
+    blurb: 'Richup-style world board. No map specials',
+    groups: {
+      brown: { name: 'Brazil', mark: 'br', cities: ['São Paulo', 'Salvador', 'Rio'] },
+      teal: { name: 'Canada', mark: 'ca', cities: ['Montreal', 'Vancouver', 'Toronto'] },
+      lightblue: { name: 'Israel', mark: 'il', cities: ['Tel Aviv', 'Haifa', 'Jerusalem'] },
+      pink: { name: 'Italy', mark: 'it', cities: ['Venice', 'Milan', 'Rome'] },
+      violet: { name: 'Spain', mark: 'es', cities: ['Seville', 'Barcelona', 'Madrid'] },
+      orange: { name: 'Germany', mark: 'de', cities: ['Frankfurt', 'Munich', 'Berlin'] },
+      red: { name: 'China', mark: 'cn', cities: ['Shenzhen', 'Beijing', 'Shanghai'] },
+      lime: { name: 'Japan', mark: 'jp', cities: ['Kyoto', 'Osaka', 'Tokyo'] },
+      yellow: { name: 'France', mark: 'fr', cities: ['Lyon', 'Toulouse', 'Paris'] },
+      green: { name: 'United Kingdom', mark: 'gb', cities: ['Liverpool', 'Manchester', 'London'] },
+      silver: { name: 'UAE', mark: 'ae', cities: ['Sharjah', 'Abu Dhabi', 'Dubai'] },
+      blue: { name: 'USA', mark: 'us', cities: ['Chicago', 'California', 'New York'] },
+    },
+    airports: ['TLV Airport', 'MUC Airport', 'CDG Airport', 'JFK Airport'],
+    utilities: ['Electric Company', 'Water Company'],
+    taxes: ['Income Tax', 'Luxury Tax'],
+  },
   {
     id: 'world',
     name: 'World Tour',

@@ -363,6 +363,10 @@ export interface Fx {
   kind: FxKind;
   /** who it happened to (for 'offer', the player it was sent to) */
   pid: string | null;
+  /** tile the effect happened on, for board animations */
+  tile?: number;
+  /** money moved, for floating +$/−$ labels */
+  amount?: number;
 }
 
 export interface LogEntry {

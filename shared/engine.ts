@@ -630,8 +630,8 @@ function log(s: GameState, ctx: Ctx, text: string) {
   if (s.log.length > 400) s.log.splice(0, s.log.length - 400);
 }
 
-function fx(s: GameState, kind: FxKind, pid: string | null = null) {
-  s.fx.push({ id: ++s.fxSeq, kind, pid });
+function fx(s: GameState, kind: FxKind, pid: string | null = null, extra: { tile?: number; amount?: number } = {}) {
+  s.fx.push({ id: ++s.fxSeq, kind, pid, ...extra });
   if (s.fx.length > 30) s.fx.splice(0, s.fx.length - 30);
 }
 
@@ -726,7 +726,7 @@ function passStart(s: GameState, ctx: Ctx, p: Player, exact: boolean) {
     }
   }
   collect(s, ctx, p, salary, note);
-  fx(s, 'start', p.id);
+  fx(s, 'start', p.id, { amount: salary });
   if (p.bankLoan > 0) pay(s, ctx, p, null, Math.ceil(p.bankLoan * BANK_INTEREST), 'in bank loan interest');
   if (set.idleCashTax) {
     const limit = set.startingCash * 2;
@@ -816,7 +816,7 @@ function settleRent(s: GameState, ctx: Ctx, p: Player, owner: Player, tile: Tile
     collect(s, ctx, owner, rent - share, `from ${p.name}'s insurance`);
   }
   pay(s, ctx, p, owner, share, `in rent for ${tile.name}`);
-  fx(s, 'rent', p.id);
+  fx(s, 'rent', p.id, { tile: tile.index, amount: share });
   stat(s, p.id).rentPaid += rent;
   stat(s, owner.id).rentReceived += rent;
   s.tileRent[tile.index] = (s.tileRent[tile.index] ?? 0) + rent;
@@ -887,15 +887,16 @@ function land(s: GameState, ctx: Ctx, p: Player, mod: LandMod) {
       }
       if (tax > 0) {
         pay(s, ctx, p, null, tax, `for ${tile.name}`, { toPot: true });
-        fx(s, 'tax', p.id);
+        fx(s, 'tax', p.id, { tile: tile.index, amount: tax });
       } else log(s, ctx, `Tax holiday: ${p.name} pays no ${tile.name}`);
       return;
     }
     case 'parking':
       if (s.settings.jackpot && s.pot > 0) {
-        collect(s, ctx, p, s.pot, 'from the Vacation jackpot', false);
+        const won = s.pot;
+        collect(s, ctx, p, won, 'from the Vacation jackpot', false);
         s.pot = 0;
-        fx(s, 'jackpot', p.id);
+        fx(s, 'jackpot', p.id, { amount: won });
       }
       return;
     case 'chance':
@@ -1004,7 +1005,7 @@ function drawCard(s: GameState, ctx: Ctx, p: Player, deck: 'chance' | 'chest') {
       if (half > 0) {
         s.pot -= half;
         collect(s, ctx, p, half, 'from the jackpot', false);
-        fx(s, 'jackpot', p.id);
+        fx(s, 'jackpot', p.id, { amount: half });
       }
       return;
     }
@@ -1019,7 +1020,7 @@ function drawCard(s: GameState, ctx: Ctx, p: Player, deck: 'chance' | 'chest') {
         return;
       }
       s.properties[spot].houses++;
-      fx(s, 'build', p.id);
+      fx(s, 'build', p.id, { tile: spot });
       log(s, ctx, `${p.name} got a free building on ${map.tiles[spot].name}`);
       return;
     }
@@ -1133,7 +1134,7 @@ function grantFreeHouses(s: GameState, ctx: Ctx, pid: string) {
     if (s.properties[cheapest].houses > 0 || !takeStock(s, 0)) continue;
     s.properties[cheapest].houses = 1;
     s.freeHouses.push(g);
-    fx(s, 'build', pid);
+    fx(s, 'build', pid, { tile: cheapest });
     log(s, ctx, `Full set! ${player(s, pid).name} gets a free house on ${map.tiles[cheapest].name}`);
   }
 }
@@ -1365,7 +1366,7 @@ function resolveAuction(s: GameState, ctx: Ctx) {
     const creditor = a.liquidation?.creditor ? s.players.find((p) => p.id === a.liquidation!.creditor && !p.bankrupt) ?? null : null;
     pay(s, ctx, winner, creditor, price, `to win ${tile.name} at auction`, { spent: true });
     s.properties[a.tile] = { owner: winner.id, houses: 0, mortgaged: false, frozen: 0 };
-    fx(s, 'auctionWon', winner.id);
+    fx(s, 'auctionWon', winner.id, { tile: a.tile, amount: price });
     grantFreeHouses(s, ctx, winner.id);
   } else {
     log(s, ctx, `Nobody bid on ${tile.name}`);
@@ -2310,7 +2311,7 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
       checkCityCap(s, p, 1);
       pay(s, ctx, p, null, tile.price!, `for ${tile.name}`, { spent: true });
       s.properties[tile.index] = { owner: p.id, houses: 0, mortgaged: false, frozen: 0 };
-      fx(s, 'buy', p.id);
+      fx(s, 'buy', p.id, { tile: tile.index, amount: tile.price });
       grantFreeHouses(s, ctx, p.id);
       finishStep(s, ctx);
       break;
@@ -2347,6 +2348,7 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
         if (alive(s).every((x) => a.bids.some((b) => b.pid === x.id))) a.endsAt = now;
         break;
       }
+      if (a.highBidder === p.id) fail('You are already the highest bidder');
       if (!(amount > a.highBid) || amount < a.opening) fail(`Bid more than ${money(Math.max(a.highBid, a.opening - 1))}`);
       a.highBid = amount;
       a.highBidder = p.id;
@@ -2410,7 +2412,7 @@ function run(s: GameState, playerId: string | null, action: Action, ctx: Ctx) {
       if (!takeStock(s, own.houses)) fail(`The bank has run out of ${own.houses < 4 ? 'houses' : own.houses === 4 ? 'hotels' : 'towers'}`);
       pay(s, ctx, p, null, cost, `to build a ${BUILDING_NAMES[own.houses + 1].replace(/^1 /, '')} on ${tile.name}`, { spent: true });
       own.houses++;
-      fx(s, own.houses >= 6 ? 'mega' : own.houses === 5 ? 'hotel' : 'build', p.id);
+      fx(s, own.houses >= 6 ? 'mega' : own.houses === 5 ? 'hotel' : 'build', p.id, { tile: tile.index });
       break;
     }
 

@@ -44,7 +44,7 @@ export function Table({ state, me }: { state: PublicState; me: string | null }) 
       </aside>
 
       <div className="board-wrap">
-        <Board state={state} onTile={setOpenTile}>
+        <Board state={state} me={me} onTile={setOpenTile}>
           <Center state={state} me={me} />
         </Board>
       </div>

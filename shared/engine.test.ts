@@ -86,6 +86,8 @@ describe('engine', () => {
     s = act(s, them, { type: 'bid', amount: 30 }, undefined, 2000);
     expect(() => act(s, me, { type: 'bid', amount: 30 }, undefined, 2500)).toThrow(GameError);
     s = act(s, me, { type: 'bid', amount: 40 }, undefined, 3000);
+    // the top bidder can't raise their own bid
+    expect(() => act(s, me, { type: 'bid', amount: 50 }, undefined, 3100)).toThrow(GameError);
     s = act(s, 'server' as string, { type: 'tick' }, undefined, 3000 + 99999);
     expect(s.auction).toBeNull();
     expect(s.properties[3].owner).toBe(me);

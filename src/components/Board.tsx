@@ -8,6 +8,7 @@ import { play } from '../sound';
 import { Avatar } from './Avatar';
 import { GroupMark } from './Mark';
 import { rateLabel, tileEffects } from './MapSpecials';
+import { Buildings, FxOverlay, useFx } from './FxLayer';
 
 type Side = 'bottom' | 'left' | 'top' | 'right' | 'corner';
 
@@ -149,14 +150,17 @@ function Corner({ tile, jailed, pot }: { tile: Tile; jailed: number; pot: number
 
 export function Board({
   state,
+  me = null,
   onTile,
   children,
 }: {
   state: PublicState;
+  me?: string | null;
   onTile: (i: number) => void;
   children: ReactNode;
 }) {
   const map = mapOf(state);
+  const fx = useFx(state, me);
   const byId = (id: string) => state.players.find((p) => p.id === id);
   const alive = state.phase === 'lobby' ? [] : state.players.filter((p) => !p.bankrupt);
   const shown = useHopPositions(alive, map.size, map.jail);
@@ -196,6 +200,8 @@ export function Board({
           own?.frozen ? 'frozen' : '',
           special ? `special-${special}` : '',
           active ? 'active' : '',
+          group ? 'has-group' : '',
+          fx.flashes[t.index] ?? '',
           ...tileEffects(state, t.index),
         ].join(' ');
         const rate = rateLabel(state, t.group);
@@ -229,11 +235,7 @@ export function Board({
               <span className="tile-body">
                 <span className="tile-icon">
                   <TileIcon tile={t} special={special} rail={map.id === 'europe'} />
-                  {own && own.houses > 0 && (
-                    <span className={`houses${own.houses >= 5 ? ' hotel' : ''}${own.houses >= 6 ? ' mega' : ''}`}>
-                      {own.houses >= 5 ? ['H', 'SKY', 'LM'][own.houses - 5] : Array.from({ length: own.houses }, (_, k) => <i key={k} />)}
-                    </span>
-                  )}
+                  {own && own.houses > 0 && <Buildings n={own.houses} />}
                   {own?.frozen ? <Snowflake className="frozen-ico" /> : null}
                 </span>
                 <span className="tile-name">{name}</span>
@@ -246,7 +248,16 @@ export function Board({
         );
       })}
 
-      <div className="board-center">{children}</div>
+      <div className={`board-center map-${map.id}`}>
+        <div className="center-deco" aria-hidden>
+          <span className="deco-ring" />
+          <span className="deco-word">RICHLANDS</span>
+          <span className="deco-map">{map.name}</span>
+        </div>
+        {children}
+      </div>
+
+      <FxOverlay fx={fx} />
 
       <Reactions state={state} shown={shown} />
 
