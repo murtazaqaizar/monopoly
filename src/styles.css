@@ -693,15 +693,32 @@ select:focus {
   transform: translate(-50%, -50%);
   z-index: 4;
 }
+/* board pieces: big, white-rimmed and outlined so they stand out on any tile colour */
 .token .avatar {
-  width: calc(3.8cqmin * var(--k, 1));
-  height: calc(3.8cqmin * var(--k, 1));
-  font-size: 1.7cqmin;
+  width: calc(5.4cqmin * var(--k, 1));
+  height: calc(5.4cqmin * var(--k, 1));
+  font-size: 2.6cqmin;
+  box-shadow:
+    0 0 0 0.35cqmin #fff,
+    0 0 0 0.65cqmin #0b0718,
+    0 0.6cqmin 1.4cqmin rgba(0, 0, 0, 0.7);
+}
+.token .avatar .piece {
+  width: 68%;
+  height: 68%;
+  stroke-width: 2.6;
 }
 .token.turn {
   z-index: 5;
 }
+/* whose turn: a larger piece with a ring in their colour */
 .token.turn .avatar {
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 0.35cqmin #fff,
+    0 0 0 0.75cqmin var(--c),
+    0 0 0 1cqmin #0b0718,
+    0 0.6cqmin 1.6cqmin rgba(0, 0, 0, 0.75);
 }
 .token.jailed .avatar {
   filter: grayscale(0.4);

@@ -432,7 +432,7 @@ export function Board({
           const { row, col } = cellOf(at, sd);
           const group = onTileMap.get(at) ?? [p.id];
           const k = group.indexOf(p.id);
-          const spread = group.length > 1 ? 1.3 : 0;
+          const spread = group.length > 1 ? 2 : 0;
           const angle = (k / group.length) * Math.PI * 2 - Math.PI / 2;
           const isTurn = state.turn?.playerId === p.id;
           return (
