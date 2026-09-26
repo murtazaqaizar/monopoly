@@ -31,7 +31,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { SPECIAL_NAMES, isBuyable, specialAt, type SpecialKind } from '../../shared/board';
-import { mapOf, ownsGroup, rentFor } from '../../shared/engine';
+import { mapOf, ownsGroup, rentFor, taxRate } from '../../shared/engine';
 import type { BoardMap, Player, PublicState, Tile } from '../../shared/types';
 import { useReactions } from '../social';
 import { play } from '../sound';
@@ -46,19 +46,19 @@ type Side = 'bottom' | 'left' | 'top' | 'right' | 'corner';
 
 /**
  * Grid cell (1-based) for a tile index on a board with `side` tiles between corners.
- * Start is bottom-right and play runs clockwise.
+ * Start is top-left and play runs clockwise.
  */
 export function cellOf(i: number, side = 9): { row: number; col: number; side: Side } {
   const q = side + 1;
   const last = side + 2;
-  if (i === 0) return { row: last, col: last, side: 'corner' };
-  if (i < q) return { row: last, col: last - i, side: 'bottom' };
-  if (i === q) return { row: last, col: 1, side: 'corner' };
-  if (i < 2 * q) return { row: last - (i - q), col: 1, side: 'left' };
-  if (i === 2 * q) return { row: 1, col: 1, side: 'corner' };
-  if (i < 3 * q) return { row: 1, col: 1 + (i - 2 * q), side: 'top' };
-  if (i === 3 * q) return { row: 1, col: last, side: 'corner' };
-  return { row: 1 + (i - 3 * q), col: last, side: 'right' };
+  if (i === 0) return { row: 1, col: 1, side: 'corner' };
+  if (i < q) return { row: 1, col: 1 + i, side: 'top' };
+  if (i === q) return { row: 1, col: last, side: 'corner' };
+  if (i < 2 * q) return { row: 1 + (i - q), col: last, side: 'right' };
+  if (i === 2 * q) return { row: last, col: last, side: 'corner' };
+  if (i < 3 * q) return { row: last, col: last - (i - 2 * q), side: 'bottom' };
+  if (i === 3 * q) return { row: last, col: 1, side: 'corner' };
+  return { row: last - (i - 3 * q), col: 1, side: 'left' };
 }
 
 /** Centre of grid line `n` as a % of the board; corners are 1.6 units, other tiles 1. */
@@ -75,55 +75,21 @@ export function tilePoint(i: number, side: number): { x: number; y: number } {
   return { x: centerPct(c.col, side), y: centerPct(c.row, side) };
 }
 
-/** Walks tokens one tile at a time toward their real position so moves read as hops. */
-function useHopPositions(players: Player[], size: number, jail: number): Record<string, number> {
-  const [shown, setShown] = useState<Record<string, number>>(() =>
-    Object.fromEntries(players.map((p) => [p.id, p.position])),
-  );
-  const target = useRef<Record<string, number>>({});
-  target.current = Object.fromEntries(players.map((p) => [p.id, p.position]));
-  const key = players.map((p) => `${p.id}:${p.position}:${p.inJail}`).join('|');
+/** Long single words step the font down so names never break mid-word. */
+function fit(name: string): string {
+  const longest = Math.max(...name.split(/[\s-]+/).map((w) => w.length));
+  return longest > 8 ? ' xlong' : longest > 6 ? ' long' : '';
+}
 
+/** Tokens jump straight to their tile; one soft tick when anyone moves. */
+function usePositions(players: Player[]): Record<string, number> {
+  const shown = Object.fromEntries(players.map((p) => [p.id, p.position]));
+  const key = players.map((p) => `${p.id}:${p.position}`).join('|');
+  const prev = useRef(key);
   useEffect(() => {
-    const jumps: Record<string, number> = {};
-    for (const p of players) {
-      // players we haven't tracked yet (the game just started) appear where they stand
-      if (shown[p.id] === undefined) {
-        jumps[p.id] = p.position;
-        continue;
-      }
-      const ahead = (p.position - shown[p.id] + size) % size;
-      // long trips (sent to Prison, flights, cards moving backwards) teleport instead of walking
-      if (ahead > 15 || (p.inJail && p.position === jail)) jumps[p.id] = p.position;
-    }
-    if (Object.keys(jumps).length) setShown((s) => ({ ...s, ...jumps }));
-    const id = setInterval(() => {
-      setShown((s) => {
-        let moved = false;
-        const next = { ...s };
-        for (const [pid, to] of Object.entries(target.current)) {
-          const at = next[pid];
-          if (at !== undefined && at !== to) {
-            next[pid] = (at + 1) % size;
-            moved = true;
-          }
-        }
-        if (!moved) clearInterval(id);
-        return moved ? next : s;
-      });
-    }, 140);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (prev.current !== key) play('step');
+    prev.current = key;
   }, [key]);
-
-  // one soft tick per hop, outside the state updater so it can't double-fire
-  const shownKey = Object.values(shown).join(',');
-  const prevKey = useRef(shownKey);
-  useEffect(() => {
-    if (prevKey.current !== shownKey) play('step');
-    prevKey.current = shownKey;
-  }, [shownKey]);
-
   return shown;
 }
 
@@ -270,9 +236,6 @@ function RoutesLayer({ map }: { map: BoardMap }) {
             <path d={d} className="route-line" />
             <circle cx={a.x} cy={a.y} r="0.9" className="route-end" />
             <circle cx={b.x} cy={b.y} r="0.9" className="route-end" />
-            <circle r={r.kind === 'flight' ? 0.7 : 0.9} className="route-mover">
-              <animateMotion dur={`${r.kind === 'flight' ? 7 : 9}s`} begin={`${k * 1.3}s`} repeatCount="indefinite" path={d} />
-            </circle>
           </g>
         );
       })}
@@ -356,7 +319,7 @@ export function Board({
   const fx = useFx(state, me);
   const byId = (id: string) => state.players.find((p) => p.id === id);
   const alive = state.phase === 'lobby' ? [] : state.players.filter((p) => !p.bankrupt);
-  const shown = useHopPositions(alive, map.size, map.jail);
+  const shown = usePositions(alive);
   const sd = map.side;
   const jailed = alive.filter((p) => p.inJail).length;
   const lastDice = state.turn?.dice ? state.turn.dice[0] + state.turn.dice[1] : 7;
@@ -368,17 +331,12 @@ export function Board({
     onTileMap.set(at, [...(onTileMap.get(at) ?? []), p.id]);
   }
 
-  // camera: lean in a little toward a token while it hops
-  const mover = alive.find((p) => shown[p.id] !== undefined && shown[p.id] !== p.position);
-  const focus = mover ? tilePoint(shown[mover.id], sd) : null;
-
   return (
     <div
-      className={`board size-${map.size} map-${map.id}${focus ? ' focused' : ''}`}
+      className={`board size-${map.size} map-${map.id}`}
       style={{
         gridTemplateColumns: `1.6fr repeat(${sd}, 1fr) 1.6fr`,
         gridTemplateRows: `1.6fr repeat(${sd}, 1fr) 1.6fr`,
-        ...(focus ? { transformOrigin: `${focus.x}% ${focus.y}%` } : {}),
       }}
     >
       {map.tiles.map((t) => {
@@ -403,7 +361,6 @@ export function Board({
           active ? 'active' : '',
           group ? 'has-group' : '',
           fullSet ? 'full-set' : '',
-          fx.flashes[t.index] ?? '',
           ...tileEffects(state, t.index),
         ].join(' ');
         const rate = rateLabel(state, t.group);
@@ -415,7 +372,7 @@ export function Board({
           // owned tiles show what a visitor pays, labelled so it isn't mistaken for the price
           else if (t.kind === 'utility') chip = <><small>rent</small>x{rentFor(state, t.index, 1)}</>;
           else chip = <><small>rent</small>${rentFor(state, t.index, lastDice)}</>;
-        } else if (t.kind === 'tax') chip = state.settings.wealthTax ? '%' : `$${t.tax}`;
+        } else if (t.kind === 'tax') chip = `${Math.round(taxRate(state, t) * 100)}%`;
 
         return (
           <button
@@ -442,7 +399,7 @@ export function Board({
                   {own && own.houses > 0 && <Buildings n={own.houses} />}
                   {own?.frozen ? <Snowflake className="frozen-ico" /> : null}
                 </span>
-                <span className="tile-name">{name}</span>
+                <span className={`tile-name${fit(name)}`}>{name}</span>
                 {chip && <span className="chip">{chip}</span>}
               </span>
             )}

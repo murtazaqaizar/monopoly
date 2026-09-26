@@ -219,9 +219,9 @@ describe('trading and loans', () => {
     s = act(s, them, { type: 'proposeLoan', to: me, lend: true, amount: 200, repay: 250, turns: 1 });
     s = act(s, me, { type: 'respondOffer', id: s.offers[0].id, accept: true });
     expect(pl(s, me).cash).toBe(1700);
-    s = act(s, me, { type: 'roll' }, [1, 3]); // income tax 200
+    s = act(s, me, { type: 'roll' }, [1, 3]); // income tax: 10% of net worth (1700 cash - 250 owed)
     s = act(s, me, { type: 'endTurn' });
-    expect(pl(s, me).cash).toBe(1700 - 200 - 250);
+    expect(pl(s, me).cash).toBe(1700 - 145 - 250);
     expect(pl(s, them).cash).toBe(1300 + 250);
     expect(s.loans).toHaveLength(0);
   });
@@ -260,14 +260,14 @@ describe('room rules', () => {
   it('taxes feed the Vacation jackpot', () => {
     let s = withSettings({ jackpot: true });
     const me = cur(s);
-    s = act(s, me, { type: 'roll' }, [1, 3]); // income tax
-    expect(s.pot).toBe(200);
+    s = act(s, me, { type: 'roll' }, [1, 3]); // income tax: 10% of $1500
+    expect(s.pot).toBe(150);
     s = act(s, me, { type: 'endTurn' });
     const them = cur(s);
     setPos(s, them, 16);
     s = act(s, them, { type: 'roll' }, [1, 3]);
     expect(s.pot).toBe(0);
-    expect(pl(s, them).cash).toBe(1700);
+    expect(pl(s, them).cash).toBe(1650);
   });
 
   it('alliance members pay no rent to each other', () => {

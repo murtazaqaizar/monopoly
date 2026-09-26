@@ -30,7 +30,7 @@ The bot plays its turns and accepts every offer. `node scripts/spectate.mjs <roo
 - `shared/engine.ts` holds every rule, including the 30 general settings (see `DEFAULT_SETTINGS`, `SETTING_CHOICES` and `PRESETS`). It is pure and deterministic (seeded dice), so the server, the tests and the replay viewer all run the same code.
 - `server/index.ts` is one Node process with Express and Socket.io. Rooms live in memory. Every change is saved to `.data/rooms.json`, so a restart keeps games going. The server also relays chat, reactions and the voice-call handshake, and records each game's events for replays.
 - `src/` is the React client built with Vite.
-- `src/sound.ts` synthesises every sound effect with Web Audio, so there are no audio files. The engine records an `fx` entry for each sound-worthy moment (dice, buy, rent, cards, hotel and so on). Each browser plays the new entries in order, and landing sounds wait for the token to finish hopping. The speaker button next to the logo mutes sound or changes the volume.
+- `src/sound.ts` synthesises every sound effect with Web Audio, so there are no audio files. The engine records an `fx` entry for each sound-worthy moment (dice, buy, rent, cards, hotel and so on). Each browser plays the new entries in order, and landing sounds wait for the dice to settle. The speaker button next to the logo mutes sound or changes the volume.
 
 ## Tests
 

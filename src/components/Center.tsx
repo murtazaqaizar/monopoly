@@ -34,19 +34,6 @@ export function Center({ state, me }: { state: PublicState; me: string | null })
     const winner = state.players.find((p) => p.id === state.winner);
     return (
       <div className="center">
-        <div className="confetti-rain" aria-hidden>
-          {Array.from({ length: 36 }, (_, i) => (
-            <i
-              key={i}
-              style={{
-                left: `${(i * 37) % 100}%`,
-                animationDelay: `${(i % 12) * 0.25}s`,
-                animationDuration: `${2.6 + (i % 5) * 0.4}s`,
-                ['--c' as string]: ['#fbbf24', '#f472b6', '#7b5cff', '#34d399', '#7dd3fc', '#fb923c'][i % 6],
-              }}
-            />
-          ))}
-        </div>
         <div className="winner">
           <Crown className="crown" size={40} />
           <h2>

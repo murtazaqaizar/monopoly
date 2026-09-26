@@ -194,7 +194,7 @@ describe('Pakistan', () => {
     s = act(s, 'p0', { type: 'roll' }, [1, 3]); // 28: Income Tax
     expect(s.turn!.stage).toBe('bribe');
     s = act(s, 'p0', { type: 'bribe', offer: false });
-    expect(pl(s, 'p0').cash).toBe(1300);
+    expect(pl(s, 'p0').cash).toBe(1350); // 10% of $1500
   });
 
   it('chai-pani: a bribe skips or doubles', () => {
@@ -202,7 +202,8 @@ describe('Pakistan', () => {
     s.players[0].position = 24;
     s = act(s, 'p0', { type: 'roll' }, [1, 3]);
     s = act(s, 'p0', { type: 'bribe', offer: true });
-    expect([1450, 1050]).toContain(pl(s, 'p0').cash);
+    // $50 bribe, then either nothing or a double tax on what is left (2 x 10% of $1450)
+    expect([1450, 1160]).toContain(pl(s, 'p0').cash);
   });
 
   it('traffic jam slows the next roll', () => {

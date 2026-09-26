@@ -38,7 +38,7 @@ body {
   background-attachment: fixed;
   color: var(--text);
   font-family: 'Rubik', system-ui, sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   -webkit-font-smoothing: antialiased;
 }
 button,
@@ -130,7 +130,7 @@ b {
 }
 .btn.small {
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .btn.ghost {
   background: transparent;
@@ -173,7 +173,7 @@ select:focus {
   gap: 6px;
 }
 .field > span {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
 }
@@ -185,7 +185,7 @@ select:focus {
   flex: none;
 }
 .tag {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 6px;
@@ -210,7 +210,7 @@ select:focus {
   display: inline-grid;
   place-items: center;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 14px;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   background:
@@ -313,9 +313,9 @@ select:focus {
 .table {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(250px, 300px) 1fr minmax(280px, 330px);
-  gap: 14px;
-  padding: 14px;
+  grid-template-columns: minmax(240px, 280px) 1fr minmax(260px, 310px);
+  gap: 10px;
+  padding: 10px;
   overflow: hidden;
 }
 .side {
@@ -339,7 +339,7 @@ select:focus {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--muted);
   margin-bottom: 10px;
@@ -351,7 +351,7 @@ select:focus {
 }
 .empty {
   text-align: center;
-  font-size: 13px;
+  font-size: 14px;
   padding: 8px 0;
 }
 .share-row {
@@ -361,7 +361,7 @@ select:focus {
 .share-row input {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 .board-wrap {
@@ -373,11 +373,11 @@ select:focus {
 
 /* ---------- board ---------- */
 .board {
-  --size: min(calc(100vh - 28px), calc(100vw - 700px));
+  --size: min(calc(100vh - 20px), calc(100vw - 600px));
   width: var(--size);
   height: var(--size);
-  min-width: 600px;
-  min-height: 600px;
+  min-width: 640px;
+  min-height: 640px;
   position: relative;
   display: grid;
   grid-template-columns: 1.6fr repeat(9, 1fr) 1.6fr;
@@ -429,14 +429,6 @@ select:focus {
 }
 .tile.active {
   z-index: 3;
-  animation: pulse 1.3s ease-in-out infinite;
-}
-@keyframes pulse {
-  50% {
-    box-shadow:
-      0 0 0 0.35cqmin var(--accent-2),
-      0 0 3cqmin var(--accent-glow);
-  }
 }
 .tile-body {
   flex: 1;
@@ -478,16 +470,22 @@ select:focus {
 .tile-name {
   font-family: 'Oswald', 'Rubik', sans-serif;
   font-weight: 500;
-  font-size: calc(1.5cqmin * var(--k, 1));
+  font-size: calc(1.95cqmin * var(--k, 1));
   line-height: 1.05;
   letter-spacing: 0.01em;
   overflow-wrap: anywhere;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
 }
+.tile-name.long {
+  font-size: calc(1.55cqmin * var(--k, 1));
+}
+.tile-name.xlong {
+  font-size: calc(1.3cqmin * var(--k, 1));
+}
 .chip {
   font-family: 'Oswald', 'Rubik', sans-serif;
   font-weight: 600;
-  font-size: calc(1.25cqmin * var(--k, 1));
+  font-size: calc(1.65cqmin * var(--k, 1));
   line-height: 1;
   padding: 0.35cqmin 0.6cqmin;
   border-radius: 0.6cqmin;
@@ -501,8 +499,8 @@ select:focus {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 .ico {
-  width: calc(3cqmin * var(--k, 1));
-  height: calc(3cqmin * var(--k, 1));
+  width: calc(3.4cqmin * var(--k, 1));
+  height: calc(3.4cqmin * var(--k, 1));
   filter: drop-shadow(0 0.3cqmin 0.3cqmin rgba(0, 0, 0, 0.4));
 }
 .tile.left .ico,
@@ -528,7 +526,7 @@ select:focus {
 .glyph-q {
   font-family: 'Rubik', sans-serif;
   font-weight: 900;
-  font-size: calc(3.6cqmin * var(--k, 1));
+  font-size: calc(4cqmin * var(--k, 1));
   line-height: 1;
   background: linear-gradient(180deg, #ff9bd2, #e2338f);
   -webkit-background-clip: text;
@@ -693,26 +691,17 @@ select:focus {
 .token {
   position: absolute;
   transform: translate(-50%, -50%);
-  transition:
-    left 0.13s linear,
-    top 0.13s linear;
   z-index: 4;
 }
 .token .avatar {
-  width: calc(3.4cqmin * var(--k, 1));
-  height: calc(3.4cqmin * var(--k, 1));
-  font-size: 1.5cqmin;
+  width: calc(3.8cqmin * var(--k, 1));
+  height: calc(3.8cqmin * var(--k, 1));
+  font-size: 1.7cqmin;
 }
 .token.turn {
   z-index: 5;
 }
 .token.turn .avatar {
-  animation: bob 1.4s ease-in-out infinite;
-}
-@keyframes bob {
-  50% {
-    transform: translateY(-0.5cqmin);
-  }
 }
 .token.jailed .avatar {
   filter: grayscale(0.4);
@@ -827,7 +816,7 @@ select:focus {
   padding: 0;
   display: grid;
   gap: 7px;
-  font-size: 13px;
+  font-size: 14px;
   color: #d7d0f5;
 }
 .feed li {
@@ -851,7 +840,7 @@ select:focus {
     0 14px 30px -12px rgba(0, 0, 0, 0.7),
     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   transform-style: preserve-3d;
-  animation: card-flip 0.9s var(--ease) both;
+  animation: fade 0.2s ease;
 }
 .card-drawn .card-inner {
   backface-visibility: hidden;
@@ -872,17 +861,6 @@ select:focus {
   transform: rotateY(180deg);
   backface-visibility: hidden;
 }
-@keyframes card-flip {
-  0% {
-    transform: perspective(700px) rotateY(180deg) translateY(-14px) scale(0.85);
-  }
-  30% {
-    transform: perspective(700px) rotateY(180deg) translateY(-6px) scale(1);
-  }
-  100% {
-    transform: perspective(700px) rotateY(0deg);
-  }
-}
 .card-drawn .card-inner,
 .card-back {
   -webkit-backface-visibility: hidden;
@@ -898,7 +876,7 @@ select:focus {
 }
 .card-kind {
   font-family: 'Oswald', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -909,7 +887,7 @@ select:focus {
 }
 .card-drawn p {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: 15px;
 }
 .debt {
   background: rgba(251, 113, 133, 0.1);
@@ -917,7 +895,7 @@ select:focus {
   color: #fecdd3;
   padding: 10px 14px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 14px;
   max-width: 380px;
 }
 .auction-bid {
@@ -1007,7 +985,7 @@ select:focus {
   text-overflow: ellipsis;
 }
 .player .meta {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .cash {
@@ -1054,16 +1032,16 @@ select:focus {
   min-width: 0;
 }
 .set-text b {
-  font-size: 14px;
+  font-size: 15px;
 }
 .set-text small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.3;
 }
 .set-control select {
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .switch {
   width: 44px;
@@ -1135,7 +1113,7 @@ select:focus {
   font-weight: 500;
 }
 .my-props .muted {
-  font-size: 12px;
+  font-size: 13px;
 }
 .log {
   flex: 1;
@@ -1151,7 +1129,7 @@ select:focus {
   display: grid;
   gap: 5px;
   align-content: start;
-  font-size: 13px;
+  font-size: 14px;
   color: #d7d0f5;
 }
 .log li {
@@ -1219,7 +1197,7 @@ select:focus {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   opacity: 0.75;
-  font-size: 11px;
+  font-size: 12px;
 }
 .deed-head h2 {
   font-family: 'Oswald', sans-serif;
@@ -1338,7 +1316,7 @@ select:focus {
 /* ================= phase 2-7 additions ================= */
 
 .small {
-  font-size: 12px;
+  font-size: 13px;
 }
 .tag.ally {
   background: rgba(52, 211, 153, 0.16);
@@ -1355,7 +1333,7 @@ select:focus {
   display: inline-grid;
   place-items: center;
   background: #3b2f66;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
 }
 .tile .flag.badge {
@@ -1435,7 +1413,7 @@ select:focus {
 }
 .tabs.small button {
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .tabs button.on {
   background: var(--panel-3);
@@ -1446,7 +1424,7 @@ select:focus {
   background: var(--accent);
   color: #fff;
   border-radius: 99px;
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 6px;
 }
 
@@ -1468,7 +1446,7 @@ select:focus {
   display: grid;
   gap: 5px;
   align-content: start;
-  font-size: 13px;
+  font-size: 14px;
   color: #d7d0f5;
 }
 .log-list li {
@@ -1531,7 +1509,7 @@ select:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   padding: 3px 9px;
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.06);
@@ -1625,7 +1603,7 @@ select:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 99px;
@@ -1712,7 +1690,7 @@ select:focus {
   background: linear-gradient(180deg, rgba(251, 191, 36, 0.18), rgba(251, 191, 36, 0.06));
   color: #fde68a;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 11px;
   border-radius: 99px;
   cursor: pointer;
@@ -1775,7 +1753,7 @@ select:focus {
   padding: 10px;
   border-radius: 11px;
   background: rgba(0, 0, 0, 0.2);
-  font-size: 13px;
+  font-size: 14px;
 }
 .offer.incoming {
   background: rgba(123, 92, 255, 0.14);
@@ -1810,7 +1788,7 @@ select:focus {
   padding: 9px 10px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.18);
-  font-size: 13px;
+  font-size: 14px;
 }
 .deal > span {
   flex: 1;
@@ -1818,7 +1796,7 @@ select:focus {
 }
 .deal select {
   padding: 5px 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .my-props ul {
   list-style: none;
@@ -1861,7 +1839,7 @@ select:focus {
 }
 .map-card small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .map-marks {
   display: flex;
@@ -1913,14 +1891,14 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 14px;
+  font-size: 15px;
 }
 .cash-field {
   display: grid;
   grid-template-columns: auto 1fr 70px;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
 }
 .cash-field input[type='range'] {
@@ -1952,7 +1930,7 @@ select:focus {
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
 }
 .pick > span:not(.inline-flag) {
   flex: 1;
@@ -1973,7 +1951,7 @@ select:focus {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
 }
 .inline-field input,
@@ -1983,7 +1961,7 @@ select:focus {
 }
 .immunity summary {
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--accent-2);
 }
@@ -2024,7 +2002,7 @@ select:focus {
   color: var(--text);
 }
 .loan-summary {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   background: rgba(0, 0, 0, 0.18);
   padding: 10px 12px;
@@ -2082,7 +2060,7 @@ select:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 10px;
-  font-size: 12px;
+  font-size: 13px;
   color: #d7d0f5;
 }
 .chart-legend li {
@@ -2141,7 +2119,7 @@ select:focus {
   display: grid;
   gap: 4px;
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
 }
 .facts div {
   display: flex;
@@ -2277,7 +2255,7 @@ select:focus {
 }
 
 .chip small {
-  font-size: 0.8cqmin;
+  font-size: 1.05cqmin;
   font-weight: 500;
   opacity: 0.85;
   margin-right: 0.25cqmin;
@@ -2287,10 +2265,10 @@ select:focus {
 
 /* bigger boards: shrink tile contents to fit narrower tiles */
 .board.size-48 {
-  --k: 0.84;
+  --k: 0.88;
 }
 .board.size-56 {
-  --k: 0.72;
+  --k: 0.78;
 }
 
 /* ---------- settings: presets and sections ---------- */
@@ -2321,14 +2299,14 @@ select:focus {
 }
 .preset small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.25;
 }
 .set-section {
   margin: 16px 0 4px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2348,7 +2326,7 @@ select:focus {
 /* ---------- center: speed die, claims, vetoes ---------- */
 .speed-face {
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   padding: 3px 10px;
   border-radius: 99px;
   background: rgba(251, 191, 36, 0.16);
@@ -2363,14 +2341,6 @@ select:focus {
   justify-items: center;
 }
 .claim-btn {
-  animation: claim-pulse 1s ease-in-out infinite;
-}
-@keyframes claim-pulse {
-  50% {
-    box-shadow:
-      0 0 0 4px rgba(155, 131, 255, 0.35),
-      0 8px 22px -8px var(--accent-glow);
-  }
 }
 .vetoes {
   display: grid;
@@ -2386,7 +2356,7 @@ select:focus {
   border-radius: 10px;
   background: rgba(251, 191, 36, 0.1);
   box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.3);
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
 }
 .veto > span:first-child {
@@ -2417,12 +2387,6 @@ select:focus {
   background: repeating-linear-gradient(135deg, rgba(244, 63, 94, 0.18) 0 0.6cqmin, transparent 0.6cqmin 1.4cqmin);
 }
 .tile.fx-war {
-  animation: war-pulse 1.4s ease-in-out infinite;
-}
-@keyframes war-pulse {
-  50% {
-    box-shadow: inset 0 0 0 0.3cqmin #ef4444;
-  }
 }
 .tile.fx-lock .tile-body {
   background: repeating-linear-gradient(45deg, rgba(167, 139, 250, 0.22) 0 0.5cqmin, transparent 0.5cqmin 1.2cqmin);
@@ -2544,7 +2508,6 @@ select:focus {
   color: #0b3d1f;
   fill: #4ade80;
   filter: drop-shadow(0 0.25cqmin 0.2cqmin rgba(0, 0, 0, 0.55));
-  animation: build-pop 0.5s var(--ease) both;
 }
 /* side columns: face the same way as the tile icons */
 .tile.left .buildings svg,
@@ -2579,19 +2542,6 @@ select:focus {
 .tile-icon:has(.buildings) > .ico,
 .tile-icon:has(.buildings) > .glyph-q {
   opacity: 0.2;
-}
-@keyframes build-pop {
-  0% {
-    transform: translateY(-1.5cqmin) scale(0.2);
-    opacity: 0;
-  }
-  60% {
-    transform: translateY(0.2cqmin) scale(1.15);
-    opacity: 1;
-  }
-  100% {
-    transform: none;
-  }
 }
 
 /* centre decoration: faint wordmark and a slow ring behind the controls */
@@ -2629,12 +2579,6 @@ select:focus {
   );
   -webkit-mask: radial-gradient(closest-side, transparent 96%, #000 97%, #000 99%, transparent 100%);
   mask: radial-gradient(closest-side, transparent 96%, #000 97%, #000 99%, transparent 100%);
-  animation: spin 40s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(1turn);
-  }
 }
 .deco-word {
   position: absolute;
@@ -2682,7 +2626,7 @@ select:focus {
   box-shadow:
     0 2cqmin 5cqmin -1cqmin rgba(0, 0, 0, 0.7),
     0 0 5cqmin -1cqmin var(--c);
-  animation: banner-in 0.55s var(--ease) both;
+  animation: banner-in 0.2s ease both;
   white-space: nowrap;
 }
 .fx-banner.tone-gold {
@@ -2696,9 +2640,6 @@ select:focus {
 }
 .fx-banner.tone-jail {
   --c: #ef4444;
-  animation:
-    banner-in 0.45s var(--ease) both,
-    shake 0.45s 0.35s ease-in-out;
 }
 .banner-icon {
   position: relative;
@@ -2710,7 +2651,6 @@ select:focus {
   background: var(--c);
   color: #fff;
   box-shadow: 0 0 2.5cqmin var(--c);
-  animation: icon-pop 0.6s 0.1s var(--ease) both;
 }
 .banner-icon svg {
   width: 3.6cqmin;
@@ -2737,21 +2677,6 @@ select:focus {
   color: #d9d3f5;
   margin-top: 0.4cqmin;
 }
-/* prison bars slam down over the jail banner */
-.banner-bars {
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(90deg, rgba(203, 213, 225, 0.5) 0 0.5cqmin, transparent 0.5cqmin 3.2cqmin);
-  animation: bars-drop 0.45s cubic-bezier(0.5, 0, 0.75, 0) both;
-}
-@keyframes bars-drop {
-  from {
-    transform: translateY(-110%);
-  }
-  to {
-    transform: none;
-  }
-}
 @keyframes banner-in {
   0% {
     opacity: 0;
@@ -2760,25 +2685,6 @@ select:focus {
   100% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
-  }
-}
-@keyframes icon-pop {
-  0% {
-    transform: scale(0) rotate(-30deg);
-  }
-  100% {
-    transform: none;
-  }
-}
-@keyframes shake {
-  25% {
-    margin-left: -0.8cqmin;
-  }
-  50% {
-    margin-left: 0.8cqmin;
-  }
-  75% {
-    margin-left: -0.4cqmin;
   }
 }
 
@@ -2821,127 +2727,7 @@ select:focus {
   }
 }
 
-/* particle bursts */
-.burst {
-  position: absolute;
-  width: 0;
-  height: 0;
-}
-.burst i {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 1.1cqmin;
-  height: 1.1cqmin;
-  margin: -0.55cqmin;
-  border-radius: 50%;
-  background: var(--c);
-  box-shadow: 0 0 1cqmin var(--c);
-  animation: burst-fly 1.1s var(--ease) both;
-}
-.burst-coins i {
-  width: 1.5cqmin;
-  height: 1.5cqmin;
-  background: radial-gradient(circle at 35% 30%, #fff7cc, #fbbf24 45%, #b45309);
-  box-shadow: 0 0 0.8cqmin rgba(251, 191, 36, 0.8);
-  animation-name: coin-fly;
-  animation-duration: 1.3s;
-}
-.burst-confetti i {
-  width: 0.9cqmin;
-  height: 1.6cqmin;
-  border-radius: 0.2cqmin;
-  box-shadow: none;
-  animation-name: confetti-fly;
-  animation-duration: 1.4s;
-}
-@keyframes burst-fly {
-  0% {
-    transform: translate(0, 0) scale(0.4);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(var(--dx), var(--dy)) scale(0);
-    opacity: 0;
-  }
-}
-@keyframes coin-fly {
-  0% {
-    transform: translate(0, 0) scale(0.3);
-    opacity: 1;
-  }
-  55% {
-    transform: translate(var(--dx), calc(var(--dy) - 3cqmin)) scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(calc(var(--dx) * 1.2), calc(var(--dy) + 4cqmin)) scale(0.8);
-    opacity: 0;
-  }
-}
-@keyframes confetti-fly {
-  0% {
-    transform: translate(0, 0) rotate(0) scale(0.4);
-    opacity: 1;
-  }
-  60% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate(calc(var(--dx) * 1.3), calc(var(--dy) + 6cqmin)) rotate(calc(var(--rot) + 540deg)) scale(1);
-    opacity: 0;
-  }
-}
 
-/* tile flashes */
-.tile.flash-buy {
-  z-index: 3;
-  animation: flash-owner 1.4s var(--ease);
-}
-@keyframes flash-owner {
-  25% {
-    box-shadow:
-      0 0 0 0.5cqmin var(--owner),
-      0 0 4cqmin var(--owner);
-    transform: scale(1.08);
-  }
-}
-.tile.flash-build {
-  z-index: 3;
-  animation: flash-build 1.2s var(--ease);
-}
-@keyframes flash-build {
-  30% {
-    box-shadow:
-      0 0 0 0.4cqmin #4ade80,
-      0 0 3cqmin rgba(74, 222, 128, 0.8);
-  }
-}
-.tile.flash-hotel {
-  z-index: 3;
-  animation: flash-hotel 1.4s var(--ease);
-}
-@keyframes flash-hotel {
-  30% {
-    transform: scale(1.12);
-    box-shadow:
-      0 0 0 0.5cqmin #fbbf24,
-      0 0 5cqmin rgba(251, 191, 36, 0.9);
-  }
-}
-.tile.flash-rent,
-.tile.flash-jail {
-  z-index: 3;
-  animation: flash-rent 1s ease-out 2;
-}
-@keyframes flash-rent {
-  20%,
-  60% {
-    box-shadow:
-      0 0 0 0.4cqmin #fb7185,
-      0 0 3cqmin rgba(251, 113, 133, 0.8);
-  }
-}
 
 /* a jailed token wears bars */
 .token.jailed .avatar {
@@ -2966,9 +2752,6 @@ select:focus {
   .money-float,
   .buildings svg {
     animation: none !important;
-  }
-  .burst {
-    display: none;
   }
 }
 
@@ -2995,7 +2778,6 @@ select:focus {
 .route-flight .route-line {
   stroke-width: 2;
   stroke-dasharray: 2 6;
-  animation: dash 1.6s linear infinite;
 }
 .route-rail .route-bed {
   fill: none;
@@ -3025,15 +2807,6 @@ select:focus {
 .route-end {
   fill: var(--rc);
   opacity: 0.8;
-}
-.route-mover {
-  fill: #fff;
-  filter: drop-shadow(0 0 0.6px var(--rc));
-}
-@keyframes dash {
-  to {
-    stroke-dashoffset: -16;
-  }
 }
 
 /* centre art */
@@ -3152,44 +2925,16 @@ select:focus {
 }
 .go-arrow span {
   display: inline-block;
-  animation: go-nudge 1.6s ease-in-out infinite;
-}
-@keyframes go-nudge {
-  50% {
-    transform: translateX(-0.8cqmin);
-  }
 }
 .corner-body.go {
   background:
     conic-gradient(from 0deg, transparent, rgba(251, 191, 36, 0.22), transparent 30%) center / 100% 100%,
     radial-gradient(circle at 50% 40%, rgba(123, 92, 255, 0.35), transparent 70%);
-  animation: go-spin 8s linear infinite;
-}
-@keyframes go-spin {
-  to {
-    background-position: center, center;
-  }
 }
 .ico.sway {
   transform-origin: 50% 100%;
-  animation: sway 3.2s ease-in-out infinite;
-}
-@keyframes sway {
-  0%,
-  100% {
-    transform: rotate(-6deg);
-  }
-  50% {
-    transform: rotate(6deg);
-  }
 }
 .ico.siren {
-  animation: siren 1.2s ease-in-out infinite;
-}
-@keyframes siren {
-  50% {
-    filter: drop-shadow(0 0 1.4cqmin rgba(251, 113, 133, 0.9));
-  }
 }
 .corner-body.gotojail,
 .corner-body.parking {
@@ -3211,7 +2956,7 @@ select:focus {
     0 2cqmin 5cqmin -1cqmin rgba(0, 0, 0, 0.8),
     inset 0 0.5cqmin 0 var(--g);
   pointer-events: none;
-  font-size: 12px;
+  font-size: 13px;
   animation: hc-in 0.18s var(--ease);
 }
 @keyframes hc-in {
@@ -3231,7 +2976,7 @@ select:focus {
 }
 .hover-card header small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -3275,24 +3020,8 @@ select:focus {
     linear-gradient(110deg, transparent 30%, rgba(255, 223, 128, 0.28) 45%, transparent 60%) 0 0 / 250% 100%,
     linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 45%);
   box-shadow: inset 0 0 0 0.16cqmin rgba(251, 191, 36, 0.55);
-  animation: shimmer 3.2s linear infinite;
-}
-@keyframes shimmer {
-  from {
-    background-position: 120% 0, 0 0;
-  }
-  to {
-    background-position: -120% 0, 0 0;
-  }
 }
 
-/* camera: lean in toward a hopping token */
-.board {
-  transition: transform 0.6s var(--ease);
-}
-.board.focused {
-  transform: scale(1.035);
-}
 
 /* lobby: the map's countries orbit the centre */
 .lobby-orbit {
@@ -3307,7 +3036,6 @@ select:focus {
   position: relative;
   width: 56cqmin;
   height: 56cqmin;
-  animation: spin 30s linear infinite;
 }
 .orbit-item {
   position: absolute;
@@ -3326,7 +3054,6 @@ select:focus {
   box-shadow:
     0 0 0 0.3cqmin rgba(155, 131, 255, 0.4),
     0 0 2cqmin rgba(123, 92, 255, 0.5);
-  animation: spin 30s linear infinite reverse;
 }
 .orbit-face .mark,
 .orbit-face .inline-flag,
@@ -3338,38 +3065,6 @@ select:focus {
 }
 
 /* coins flying from payer to owner */
-.coin-flow {
-  position: absolute;
-  width: 0;
-  height: 0;
-}
-.coin-flow i {
-  position: absolute;
-  width: 1.6cqmin;
-  height: 1.6cqmin;
-  margin: -0.8cqmin;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff7cc, #fbbf24 45%, #b45309);
-  box-shadow: 0 0 1cqmin rgba(251, 191, 36, 0.9);
-  animation: coin-travel 0.9s cubic-bezier(0.5, 0, 0.3, 1) both;
-}
-@keyframes coin-travel {
-  0% {
-    transform: translate(0, 0) scale(0.4);
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-    transform: translate(calc(var(--tx) * 0.1), calc(var(--ty) * 0.1 - 4cqmin)) scale(1);
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate(var(--tx), var(--ty)) scale(0.6);
-    opacity: 0;
-  }
-}
 
 /* cash counting in the players list */
 .cash {
@@ -3501,7 +3196,7 @@ select:focus {
   color: #5eead4;
 }
 
-/* winner: podium and confetti */
+/* winner: podium */
 .podium-steps {
   display: flex;
   align-items: flex-end;
@@ -3544,46 +3239,7 @@ select:focus {
   height: 44px;
 }
 .step b {
-  font-size: 14px;
-}
-.confetti-rain {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-.confetti-rain i {
-  position: absolute;
-  top: -5%;
-  width: 7px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--c);
-  animation: fall linear infinite;
-}
-@keyframes fall {
-  to {
-    transform: translateY(110cqmin) rotate(720deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .route-mover,
-  .confetti-rain,
-  .coin-flow {
-    display: none;
-  }
-  .orbit-ring,
-  .orbit-face,
-  .tile.full-set::after,
-  .corner-body.go,
-  .ico.sway,
-  .ico.siren,
-  .route-flight .route-line,
-  .board {
-    animation: none !important;
-    transition: none !important;
-  }
+  font-size: 15px;
 }
 
 /* a train strike shows a picket sign rather than a power cut */

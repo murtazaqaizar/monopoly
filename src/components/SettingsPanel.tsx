@@ -244,7 +244,7 @@ const SECTIONS: { title: string; rows: Def[] }[] = [
       sw('stockMarket', <TrendingUp size={I} />, 'Stock exchange', 'Buy shares; earn dividends on a set’s rent'),
       sw('insurance', <Shield size={I} />, 'Insurance', '$100 covers half of big rents for 5 turns'),
       sw('miniGames', <Dices size={I} />, 'Arcade', 'A Treasure tile becomes a higher-or-lower game'),
-      sw('wealthTax', <Percent size={I} />, 'Wealth tax', 'Taxes charge 5-15% of net worth'),
+      sw('wealthTax', <Percent size={I} />, 'Wealth tax', 'Tax rate climbs to 15% of net worth as the game goes on'),
     ],
   },
 ];

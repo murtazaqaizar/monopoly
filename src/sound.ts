@@ -464,7 +464,7 @@ export function play(name: SoundName) {
 // ---------- game hook ----------
 
 const GAP = 320;
-const HOP_MS = 140;
+const DICE_MS = 600;
 
 // One queue across state updates, so a later event never plays before an earlier one.
 let queueFree = 0;
@@ -479,7 +479,7 @@ function enqueue(name: SoundName, holdMs: number) {
 
 /**
  * Plays a sound for each new engine effect. Effects that happen on landing wait
- * until the token has finished hopping, so the sound lines up with the board.
+ * for the dice to settle, so the sound lines up with the board.
  */
 export function useGameSounds(state: PublicState, me: string | null) {
   const seen = useRef<number | null>(null);
@@ -499,9 +499,8 @@ export function useGameSounds(state: PublicState, me: string | null) {
     seen.current = latest;
 
     for (const f of fresh.slice(-4)) {
-      const d = state.turn?.dice;
-      // landing sounds wait for the token to finish hopping
-      enqueue(f.kind, f.kind === 'dice' || f.kind === 'doubles' ? 380 + (d ? d[0] + d[1] : 6) * HOP_MS : GAP);
+      // landing sounds wait for the dice to settle
+      enqueue(f.kind, f.kind === 'dice' || f.kind === 'doubles' ? DICE_MS : GAP);
     }
     if (turnPid !== lastTurn.current) {
       lastTurn.current = turnPid;

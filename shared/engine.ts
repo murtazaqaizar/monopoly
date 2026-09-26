@@ -665,10 +665,15 @@ export function wealthTaxRate(s: Pick<GameState, 'round'>): number {
   return Math.min(0.15, 0.05 + 0.01 * Math.floor(s.round / 5));
 }
 
+/** Tax tiles charge a share of net worth (tile.tax is the percent); Wealth tax raises it over the game. */
+export function taxRate(s: View, tile: Tile): number {
+  const base = (tile.tax ?? 10) / 100;
+  return s.settings.wealthTax ? Math.max(base, wealthTaxRate(s)) : base;
+}
+
 export function taxFor(s: View, p: Player, tile: Tile): number {
   if (s.event?.kind === 'taxHoliday') return 0;
-  if (!s.settings.wealthTax) return tile.tax ?? 0;
-  return Math.max(tile.tax ?? 0, Math.round(netWorth(s, p) * wealthTaxRate(s)));
+  return Math.max(10, Math.round((netWorth(s, p) * taxRate(s, tile)) / 5) * 5);
 }
 
 export function allianceBetween(s: Pick<GameState, 'alliances'>, a: string, b: string) {

@@ -252,7 +252,7 @@ function buildMap(def: MapDef, size: BoardSize): BoardMap {
     else if (ch === 'Y') tiles.push({ index: i, name: next(def.museums, 'Y', 'Museum'), kind: 'museum' });
     else if (ch === 'T') {
       const t = counters.T ?? 0;
-      tiles.push({ index: i, name: next(def.taxes, 'T', 'Tax'), kind: 'tax', tax: t === 0 ? 200 : 100 });
+      tiles.push({ index: i, name: next(def.taxes, 'T', 'Tax'), kind: 'tax', tax: t === 0 ? 10 : 5 }); // percent of net worth
     } else {
       const [kind, name] = SINGLES[ch] ?? SINGLES.X;
       tiles.push({ index: i, name, kind });
